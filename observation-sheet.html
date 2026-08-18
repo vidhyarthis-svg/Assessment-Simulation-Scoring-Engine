@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIVA Assessment Simulation — Observation Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue1:#386097;--gray1:#282A32;--gray2:#67696F;--gray3:#939498;--gray4:#EFEFEF;
+  --orange2:#C25700;--gold:#C9A84C;--gold-light:#F5EDD6;--red:#B3261E;--green:#1B5E20;
+  --surface:#fff;--border:#D8D8D6;--font:"DM Sans",sans-serif;
+  --radius:4px;--radius-lg:8px;--shadow:0 1px 4px rgba(40,42,50,.08),0 4px 16px rgba(40,42,50,.06);
+}
+html,body{background:var(--gray4);font-family:var(--font);font-size:15px;color:var(--gray1);line-height:1.6}
+body{-webkit-user-select:none;user-select:none}
+input,textarea{-webkit-user-select:text;user-select:text}
+
+/* ── HEADER ─────────────────────────────────────────── */
+header{background:var(--gray1);padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--gold)}
+.hdr-title{font-size:13px;font-weight:600;color:#fff}
+.hdr-sub{font-size:10px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+.badge{background:var(--blue1);color:#fff;font-size:10px;font-weight:700;padding:.3rem .875rem;border-radius:2px;letter-spacing:.08em;text-transform:uppercase}
+
+/* ── TIMER BAR ──────────────────────────────────────── */
+.timerbar{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(40,42,50,.06);display:none}
+.timerbar.show{display:block}
+.tb-inner{max-width:900px;margin:0 auto;padding:.625rem 1.5rem;display:flex;align-items:center;gap:1rem;justify-content:space-between}
+.tb-left{min-width:0}
+.tb-sec{font-size:13px;font-weight:700;color:var(--gray1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-step{font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--gray3)}
+.tb-right{display:flex;align-items:center;gap:1rem;flex-shrink:0}
+.clock{font-variant-numeric:tabular-nums;font-size:1.5rem;font-weight:700;color:var(--gray1);line-height:1;letter-spacing:.02em}
+.clock.warn{color:var(--orange2)}
+.clock.crit{color:var(--red);animation:pulse .9s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.clock-lbl{font-size:8px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--gray3);text-align:right;margin-top:2px}
+.dots{display:flex;gap:5px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--border)}
+.dot.done{background:var(--blue1)}
+.dot.now{background:var(--gold);box-shadow:0 0 0 3px var(--gold-light)}
+.tb-prog{height:3px;background:var(--gray4)}
+.tb-prog-fill{height:100%;background:var(--blue1);transition:width .4s linear}
+.tb-prog-fill.warn{background:var(--orange2)}
+.tb-prog-fill.crit{background:var(--red)}
+
+/* ── LAYOUT ─────────────────────────────────────────── */
+.wrap{max-width:900px;margin:0 auto;padding:2rem 1.5rem 5rem}
+h1{font-size:1.75rem;font-weight:700;margin-bottom:.25rem}
+h1 span{color:var(--blue1)}
+.sub{font-size:13px;color:var(--gray3);margin-bottom:1.75rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.375rem;margin-bottom:1rem;box-shadow:var(--shadow)}
+.lbl{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--gray3);margin-bottom:.5rem}
+.step-head{display:flex;align-items:center;font-size:14px;font-weight:600;margin-bottom:.875rem;gap:.625rem}
+.step-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--blue1);color:#fff;font-size:11px;font-weight:700;flex-shrink:0}
+.muted{font-size:13px;color:var(--gray2)}
+.tiny{font-size:11px;color:var(--gray3)}
+
+/* ── FORM CONTROLS ──────────────────────────────────── */
+input[type=text],input[type=date],textarea,select{width:100%;font-family:var(--font);font-size:14px;color:var(--gray1);background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:.6rem .75rem;outline:none;transition:border-color .15s}
+input:focus,textarea:focus,select:focus{border-color:var(--blue1)}
+textarea{resize:vertical;line-height:1.6}
+select{cursor:pointer;background-image:none}
+input:disabled,textarea:disabled,select:disabled{background:var(--gray4);color:var(--gray2);cursor:not-allowed}
+.field{margin-bottom:1rem}
+.field > label{display:block;font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--gray3);margin-bottom:.375rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+
+/* ── BUTTONS ────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.7rem 1.5rem;border-radius:var(--radius);font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:var(--blue1);color:#fff}.btn-primary:hover{background:#4C79AF}
+.btn-ghost{background:none;border:1px solid var(--border);color:var(--gray2)}.btn-ghost:hover{border-color:var(--blue1);color:var(--blue1)}
+.btn-gold{background:var(--gold);color:var(--gray1);font-weight:700}.btn-gold:hover{background:#b8952f}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;gap:.625rem;margin-top:1rem;flex-wrap:wrap;align-items:center}
+.linkbtn{background:none;border:none;color:var(--blue1);font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;padding:0}
+
+/* ── NOTICES ────────────────────────────────────────── */
+.note{border-left:3px solid var(--blue1);background:#EDF3FA;padding:.75rem 1rem;font-size:13px;color:var(--gray1);border-radius:0 var(--radius) var(--radius) 0;margin-bottom:1rem}
+.note.warnbox{border-left-color:var(--orange2);background:#FDF2F0;color:#8B2500}
+.note.okbox{border-left-color:#2E7D32;background:#E8F5EC;color:var(--green)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:1.5rem;background:var(--gray1);color:#fff;font-size:13px;font-weight:600;padding:.7rem 1.25rem;border-radius:var(--radius);box-shadow:var(--shadow);z-index:200;opacity:0;pointer-events:none;transition:opacity .2s}
+#watermark{position:fixed;inset:0;z-index:300;pointer-events:none;background-repeat:repeat;mix-blend-mode:multiply}
+.toast.show{opacity:1}
+
+/* ── OBSERVATION ROWS ───────────────────────────────── */
+.obs-head{display:grid;grid-template-columns:1fr 210px 150px;gap:.75rem;padding:0 0 .375rem;border-bottom:1px solid var(--border);margin-bottom:.75rem}
+.obs-head div{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gray3);line-height:1.4}
+.obs-row{display:grid;grid-template-columns:1fr 210px 150px;gap:.75rem;margin-bottom:.75rem;align-items:start}
+.obs-n{position:absolute;left:-1.5rem;top:.6rem;font-size:10px;font-weight:700;color:var(--gray3)}
+.obs-cell{position:relative}
+.obs-row textarea{min-height:78px}
+
+/* ── ELEMENTS PANEL ─────────────────────────────────── */
+.elems{background:var(--gray4);border-radius:var(--radius);padding:.875rem 1rem;margin-bottom:1.25rem}
+.elem{font-size:12px;color:var(--gray2);margin-bottom:.25rem}
+.elem:last-child{margin-bottom:0}
+.elem b{color:var(--gray1);font-weight:600}
+.elem::before{content:"\25C6";color:var(--gold);margin-right:.5rem;font-size:9px;vertical-align:2px}
+
+/* ── SCORE PICKER ───────────────────────────────────── */
+.scale{display:flex;gap:.375rem;flex-wrap:wrap}
+.scale input{display:none}
+.scale label{display:inline-flex;align-items:center;justify-content:center;min-width:52px;padding:.5rem .25rem;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:600;color:var(--gray2);cursor:pointer;background:var(--surface);transition:all .12s}
+.scale label:hover{border-color:var(--blue1);color:var(--blue1)}
+.scale input:checked + label{background:var(--blue1);border-color:var(--blue1);color:#fff}
+.scale input:disabled + label{opacity:.5;cursor:not-allowed}
+.bands{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-top:.75rem}
+.band{border:1px solid var(--border);border-radius:var(--radius);padding:.5rem .625rem;font-size:10px;line-height:1.45;color:var(--gray2)}
+.band b{display:block;font-size:11px;color:var(--gray1)}
+
+/* ── SUMMARY TABLE ──────────────────────────────────── */
+.sumtable{width:100%;border-collapse:collapse;font-size:13px}
+.sumtable th{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gray3);text-align:left;padding:.5rem .625rem;border-bottom:1px solid var(--border)}
+.sumtable td{padding:.625rem;border-bottom:1px solid var(--gray4);vertical-align:top}
+.sumtable td.comp{font-weight:600;width:22%}
+.sumtable td.sc{font-weight:700;color:var(--blue1);width:8%;text-align:center}
+.sumtable td.cl{width:26%;font-size:12px;color:var(--gray2)}
+.pending{color:var(--gray3);font-weight:400;font-style:italic}
+
+/* ── LOCK / REVIEW ──────────────────────────────────── */
+.locked{position:relative}
+.locked::after{content:"";position:absolute;inset:0;background:rgba(239,239,239,.28);border-radius:var(--radius-lg);pointer-events:none}
+.review-card{border-left:3px solid var(--blue1)}
+.review-blk{margin-bottom:.875rem}
+.review-blk:last-child{margin-bottom:0}
+.review-q{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--gray3);margin-bottom:.2rem}
+.review-a{font-size:13px;color:var(--gray1);white-space:pre-wrap}
+.review-a.empty{color:var(--gray3);font-style:italic}
+.chip{display:inline-block;font-size:10px;font-weight:700;padding:.15rem .5rem;border-radius:2px;background:var(--gray4);color:var(--gray2);margin-left:.375rem}
+.chip.pos{background:#E8F5EC;color:var(--green)}
+.chip.dev{background:#FDF2F0;color:#8B2500}
+
+/* ── MODAL ──────────────────────────────────────────── */
+.modal{position:fixed;inset:0;background:rgba(40,42,50,.55);z-index:150;display:none;align-items:flex-start;justify-content:center;padding:2rem 1rem;overflow-y:auto}
+.modal.show{display:flex}
+.modal-box{background:var(--surface);border-radius:var(--radius-lg);max-width:760px;width:100%;padding:1.75rem;box-shadow:0 12px 48px rgba(0,0,0,.28)}
+.modal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+.modal-hd h2{font-size:1.125rem;font-weight:700}
+.x{background:none;border:none;font-size:1.5rem;line-height:1;color:var(--gray3);cursor:pointer}
+.fw-comp{border:1px solid var(--border);border-radius:var(--radius);padding:.875rem 1rem;margin-bottom:.75rem}
+.fw-comp h3{font-size:13px;font-weight:700;color:var(--blue1);margin-bottom:.5rem}
+
+/* ── SUBMISSION SCREEN ───────────────────────────────── */
+.subbox{background:var(--gray4);border-radius:var(--radius-lg);padding:1.125rem 1.25rem;margin-bottom:1rem}
+.subbox .field:last-child{margin-bottom:0}
+.mono-input{width:100%;font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:13px;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:.6rem .75rem;color:var(--gray1);white-space:normal;word-break:break-word;line-height:1.5}
+.check-card{display:flex;gap:.75rem;align-items:flex-start}
+.check-card input[type=checkbox]{width:17px;height:17px;flex-shrink:0;margin-top:.15rem;accent-color:var(--blue1);cursor:pointer}
+.check-card label{font-size:13px;color:var(--gray1);line-height:1.55;cursor:pointer}
+
+footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-content:space-between;align-items:center}
+.ftr-l{font-size:10px;font-weight:600;color:rgba(255,255,255,.45);letter-spacing:.06em;text-transform:uppercase}
+.ftr-r{font-size:10px;color:rgba(255,255,255,.3)}
+
+@media (max-width:760px){
+  .obs-head{display:none}
+  .obs-row{grid-template-columns:1fr;gap:.5rem;padding-bottom:1rem;border-bottom:1px solid var(--gray4)}
+  .grid2{grid-template-columns:1fr}
+  .bands{grid-template-columns:1fr 1fr}
+  .clock{font-size:1.25rem}
+}
+@media print{
+  header,footer,.timerbar,.no-print{display:none!important}
+  body{background:#fff}
+  .card{box-shadow:none;page-break-inside:avoid}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="hdr-title">AIVA Practice Alignment Programme</div>
+    <div class="hdr-sub">Assessment Simulation &middot; Observation Hub</div>
+  </div>
+  <span class="badge" id="hdr-badge">Assessor</span>
+</header>
+
+<!-- ══ TIMER BAR ══════════════════════════════════════ -->
+<div class="timerbar" id="timerbar">
+  <div class="tb-inner">
+    <div class="tb-left">
+      <div class="tb-sec" id="tb-sec">&nbsp;</div>
+      <div class="tb-step" id="tb-step">&nbsp;</div>
+    </div>
+    <div class="tb-right">
+      <div class="dots" id="dots"></div>
+      <div>
+        <div class="clock" id="clock">00:00</div>
+        <div class="clock-lbl">Time left</div>
+      </div>
+    </div>
+  </div>
+  <div class="tb-prog"><div class="tb-prog-fill" id="tb-fill" style="width:100%"></div></div>
+</div>
+
+<div class="wrap" id="wrap"></div>
+
+<footer>
+  <div class="ftr-l">AIVA Practice Alignment Programme</div>
+  <div class="ftr-r">Right Management India</div>
+</footer>
+
+<!-- ══ FRAMEWORK MODAL ════════════════════════════════ -->
+<div class="modal" id="fw-modal">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <h2>Competency Framework</h2>
+      <button class="x" id="fw-close">&times;</button>
+    </div>
+    <div id="fw-body"></div>
+  </div>
+</div>
+
+<!-- ══ NOTES MODAL ═════════════════════════════════════ -->
+<div class="modal" id="notes-modal">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <h2>Listening Notes</h2>
+      <button class="x" id="notes-close">&times;</button>
+    </div>
+    <p class="muted" style="margin-bottom:.75rem">Your rough notes from listening to the audio. Keep this open for reference while you complete each section below — copying text is disabled, so retype anything you need into the fields.</p>
+    <textarea id="notes-ta" style="min-height:280px"></textarea>
+  </div>
+</div>
+
+<!-- ══ CONFIRM MODAL ══════════════════════════════════════ -->
+<div class="modal" id="confirm-modal">
+  <div class="modal-box" style="max-width:420px">
+    <div class="modal-hd" style="margin-bottom:.625rem">
+      <h2 id="confirm-title">Please confirm</h2>
+    </div>
+    <p class="muted" id="confirm-body" style="margin-bottom:1.25rem;white-space:pre-line"></p>
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn btn-primary" id="confirm-yes">Yes</button>
+      <button class="btn btn-ghost" id="confirm-no">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div id="watermark" aria-hidden="true"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   CONFIGURATION — section time limits (in seconds)
+   Adjust these values to change how long each section stays open.
+   Total below = 19 minutes of timed writing.
+   ═══════════════════════════════════════════════════════════════ */
+const TIMING = {
+  competency: 210,   // 3:30 per competency  x4 = 14:00
+  summary:    120,   // 2:00
+  overall:    180    // 3:00
+};
+const HARD_LOCK = true;   // true = section locks and auto-advances when time expires
+const BLOCK_PASTE = true; // true = pasting into the sheet is blocked
+
+const COMPETENCIES = [
+  {
+    n: 1,
+    name: 'Result Orientation',
+    tag: 'Goal Focused Execution · Performance Discipline · Delivery Reliability',
+    elements: [
+      ['Goal Focused Execution', 'translates priorities into clear objectives and timelines'],
+      ['Performance Discipline', 'monitors progress, addresses deviations proactively'],
+      ['Delivery Reliability', 'honours commitments; addresses lapses promptly with specific corrective action']
+    ]
+  },
+  {
+    n: 2,
+    name: 'Commercial Acumen',
+    tag: 'Value Orientation · Resource Allocation Judgement · Risk Return Judgement',
+    elements: [
+      ['Value Orientation', 'evaluates initiatives in terms of long-term value not short-term volume'],
+      ['Resource Allocation Judgement', 'prioritises based on disciplined deployment of resources'],
+      ['Risk Return Judgement', 'balances potential benefits against exposure and downside implications']
+    ]
+  },
+  {
+    n: 3,
+    name: 'Customer Orientation',
+    tag: 'Customer Insight · Solution Orientation · Commercial Negotiation',
+    elements: [
+      ['Customer Insight', "seeks to understand customer's financial and operational context before responding"],
+      ['Solution Orientation', 'advances structured solutions without compromising institutional standards'],
+      ['Commercial Negotiation', 'negotiates with confidence, balancing responsiveness with sustainability']
+    ]
+  },
+  {
+    n: 4,
+    name: 'Executive Communication & Presence',
+    tag: 'Clarity of Communication · Professional Representation · Executive Presence',
+    elements: [
+      ['Clarity of Communication', 'presents issues and recommendations in a structured and concise manner'],
+      ['Professional Representation', 'represents institutional positions accurately; avoids overcommitment'],
+      ['Executive Presence', 'maintains composure and credibility in high-stakes interactions']
+    ]
+  }
+];
+
+const SCORES = ['1','1.5','2','2.5','3','3.5','4','4.5','5'];
+const CLASSES = [
+  'Area of Development',
+  'Area of Development / Emerging',
+  'Proficient / Emerging Strength',
+  'Strength / Hi-Potential'
+];
+const BANDS = [
+  ['1 – 1.5', 'Area of Development', 'Demonstrates rarely or inconsistently. Behaviours insufficient to meet role expectations.'],
+  ['2 – 2.5', 'Area of Development / Emerging', 'Demonstrates in some situations. Expression is uneven; gaps remain in complex contexts.'],
+  ['3 – 3.5', 'Proficient / Emerging Strength', 'Demonstrates consistently at expected level. Dependable and aligned to role expectations.'],
+  ['4 – 5', 'Strength / Hi-Potential', 'Depth and consistency across varied situations. Influences outcomes beyond immediate scope.']
+];
+const EVIDENCE = [
+  ['Positive', '+ Positive'],
+  ['Developmental', '− Developmental'],
+  ['Unclear', '? Unclear']
+];
+const OBS_ROWS = 4;
+const STORE_KEY = 'aiva-assessment-sim-obshub-v1';
+
+/* ── SECTION MAP ─────────────────────────────────────────────── */
+const SECTIONS = [
+  {id:'setup', title:'Before You Begin', kind:'setup', secs:0},
+  {id:'notes', title:'Listening Notes', kind:'notes', secs:0},
+  {id:'c1', title:'Competency 1 — Result Orientation', kind:'comp', ci:0, secs:TIMING.competency},
+  {id:'c2', title:'Competency 2 — Commercial Acumen', kind:'comp', ci:1, secs:TIMING.competency},
+  {id:'c3', title:'Competency 3 — Customer Orientation', kind:'comp', ci:2, secs:TIMING.competency},
+  {id:'c4', title:'Competency 4 — Executive Communication & Presence', kind:'comp', ci:3, secs:TIMING.competency},
+  {id:'summary', title:'Summary — Scores and Classifications', kind:'summary', secs:TIMING.summary},
+  {id:'overall', title:'Overall Observations', kind:'overall', secs:TIMING.overall},
+  {id:'done', title:'Submission', kind:'done', secs:0}
+];
+const TIMED = SECTIONS.filter(function(s){ return s.secs > 0; });
+
+/* ── STATE ───────────────────────────────────────────────────── */
+function blankState() {
+  return {
+    name: '', date: new Date().toISOString().slice(0,10),
+    idx: 0, deadline: null, startedAt: null,
+    notes: '',
+    comps: COMPETENCIES.map(function(){
+      return {
+        obs: Array.from({length:OBS_ROWS}, function(){ return {text:'', element:'', type:''}; }),
+        inference:'', score:'', justification:'', classification:'', why:'', rationale:''
+      };
+    }),
+    overall: {rating:'', ratingClass:'', strongest:'', gap:'', readiness:''},
+    integrity: {paste:0, copy:0, blur:0, screenshot:0, expired:[]},
+    lockedIdx: -1
+  };
+}
+let S = blankState();
+let restored = false;
+
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch(e){} }
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return false;
+    const p = JSON.parse(raw);
+    if (!p || !p.comps || p.comps.length !== COMPETENCIES.length) return false;
+    S = Object.assign(blankState(), p);
+    return true;
+  } catch(e) { return false; }
+}
+
+/* ── HELPERS ─────────────────────────────────────────────────── */
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function $(id){ return document.getElementById(id); }
+function mmss(sec){
+  sec = Math.max(0, Math.ceil(sec));
+  const m = Math.floor(sec/60), s = sec%60;
+  return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+}
+function toast(msg, ms) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(function(){ t.classList.remove('show'); }, ms||2200);
+}
+function showConfirm(title, body, onYes) {
+  $('confirm-title').textContent = title;
+  $('confirm-body').textContent = body;
+  $('confirm-modal').classList.add('show');
+  const yes = $('confirm-yes'), no = $('confirm-no');
+  function cleanup() { $('confirm-modal').classList.remove('show'); yes.onclick = null; no.onclick = null; }
+  yes.onclick = function(){ cleanup(); onYes(); };
+  no.onclick = function(){ cleanup(); };
+}
+function cur(){ return SECTIONS[S.idx]; }
+
+/* ═══ RENDER ═════════════════════════════════════════════════ */
+function render() {
+  const sec = cur();
+  const wrap = $('wrap');
+  wrap.innerHTML = ({
+    setup:   viewSetup,
+    notes:   viewNotes,
+    comp:    viewComp,
+    summary: viewSummary,
+    overall: viewOverall,
+    done:    viewDone
+  })[sec.kind](sec);
+  bind(sec);
+  updateTimerBar();
+  window.scrollTo({top:0, behavior:'instant'});
+}
+
+/* ── SETUP ───────────────────────────────────────────────────── */
+function viewSetup() {
+  const mins = Math.round(TIMED.reduce(function(a,s){ return a+s.secs; },0)/60);
+  let h = '';
+  h += '<h1>Observation <span>Hub</span></h1>';
+  h += '<p class="sub">Chemistik Industries &mdash; Customer Role Play &mdash; Recovering a High-Value B2B Client Relationship</p>';
+
+  if (restored && S.idx > 0) {
+    h += '<div class="note okbox no-print"><strong>Draft restored.</strong> Your earlier answers were recovered from this browser. '
+      +  'Section timers continue from where they were &mdash; refreshing the page does not reset them. '
+      +  '<button class="linkbtn" id="btn-resume-inline" style="color:inherit">Resume at ' + esc(SECTIONS[S.idx].title) + ' &rarr;</button></div>';
+  }
+
+  h += '<div class="card">';
+  h += '<div class="step-head"><span class="step-num">1</span>Your details</div>';
+  h += '<div class="grid2">';
+  h += '<div class="field"><label for="f-name">Assessor name <span style="color:var(--red)">*</span> required</label><input type="text" id="f-name" value="'+esc(S.name)+'" placeholder="Your full name" autocomplete="off"></div>';
+  h += '<div class="field"><label for="f-date">Date</label><input type="date" id="f-date" value="'+esc(S.date)+'"></div>';
+  h += '</div>';
+  h += '<div class="field" style="margin-bottom:0"><label>Assessee</label><div class="muted">Sunil Jain &mdash; VP, Key Accounts &amp; Business Development, Chemistik Industries</div></div>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="step-head"><span class="step-num">2</span>How this console works</div>';
+  h += '<div class="note warnbox"><strong>This is a timed exercise.</strong> Each section opens with its own countdown. '
+    +  'When the countdown reaches zero the section locks automatically and you move to the next one &mdash; '
+    +  'you cannot return to a section once it closes. Write continuously and do not stop to look things up.</div>';
+  h += '<ol class="muted" style="padding-left:1.25rem">';
+  h += '<li>Click Begin, then play the role play audio &mdash; use the untimed Listening Notes screen to capture rough notes as you go.</li>';
+  h += '<li>Your notes stay available from the <strong>My Notes</strong> button throughout the timed sections that follow.</li>';
+  h += '<li><strong>Record what you observed</strong> &mdash; write what was actually SAID or DONE. Stay close to verbatim. Do not interpret in the observation box.</li>';
+  h += '<li><strong>Separate observation from inference</strong> &mdash; the observation box and the inference box serve different purposes. Do not mix them.</li>';
+  h += '<li><strong>Use the competency framework</strong> &mdash; map each observation to the correct competency and element. Do not create your own labels.</li>';
+  h += '<li><strong>Record both positive and developmental evidence</strong> &mdash; if you only record strengths your observations are incomplete.</li>';
+  h += '<li>This screen is watermarked with your name and the time throughout &mdash; copying, pasting and right-click are disabled, and screenshots are traceable to your session.</li>';
+  h += '<li>Scores use the nine allowed values only: 1 / 1.5 / 2 / 2.5 / 3 / 3.5 / 4 / 4.5 / 5.</li>';
+  h += '<li>Classification must be one of the four bands in the scoring grid.</li>';
+  h += '</ol>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="step-head"><span class="step-num">3</span>Section timings</div>';
+  h += '<table class="sumtable"><thead><tr><th>Section</th><th style="text-align:right">Time</th></tr></thead><tbody>';
+  TIMED.forEach(function(s){
+    h += '<tr><td class="comp" style="width:auto;font-weight:500">'+esc(s.title)+'</td><td style="text-align:right;font-weight:700;font-variant-numeric:tabular-nums">'+mmss(s.secs)+'</td></tr>';
+  });
+  h += '<tr><td class="comp" style="width:auto">Total writing time</td><td style="text-align:right;font-weight:700">'+mins+' minutes</td></tr>';
+  h += '</tbody></table>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="step-head"><span class="step-num">4</span>Competency framework</div>';
+  h += '<p class="muted" style="margin-bottom:.875rem">Read this now. Each competency\'s elements also stay on screen while you write that section, and the full framework is one click away at any time.</p>';
+  h += frameworkHTML();
+  h += '</div>';
+
+  h += '<div class="btn-row no-print">';
+  h += '<button class="btn btn-primary" id="btn-begin"'+(S.name.trim()?'':' disabled')+'>Begin &rarr;</button>';
+  h += '<span class="tiny" id="begin-hint">'+(S.name.trim()?'Section timers start once you click.':'Enter your name above to continue.')+'</span>';
+  h += '</div>';
+  return h;
+}
+
+function frameworkHTML() {
+  let h = '';
+  COMPETENCIES.forEach(function(c){
+    h += '<div class="fw-comp"><h3>'+c.n+'. '+esc(c.name)+'</h3>';
+    c.elements.forEach(function(e){
+      h += '<div class="elem"><b>'+esc(e[0])+'</b> &mdash; '+esc(e[1])+'</div>';
+    });
+    h += '</div>';
+  });
+  h += '<div class="lbl" style="margin-top:1.25rem">Scoring grid</div>';
+  h += '<div class="bands">';
+  BANDS.forEach(function(b){
+    h += '<div class="band"><b>'+b[0]+'</b><b style="color:var(--blue1);font-size:10px">'+esc(b[1])+'</b>'+esc(b[2])+'</div>';
+  });
+  h += '</div>';
+  return h;
+}
+
+/* ── LISTENING NOTES ─────────────────────────────────────────── */
+function viewNotes() {
+  let h = '';
+  h += '<h1>Listening <span>Notes</span></h1>';
+  h += '<p class="sub">Play the role play audio now and use this space to capture rough notes as you listen.</p>';
+
+  h += '<div class="card">';
+  h += '<div class="note">This screen is untimed. Take as long as the audio runs. Your notes stay open for reference '
+    +  '(via the <strong>My Notes</strong> button) once you move into the timed sections &mdash; they are not scored on their own, '
+    +  'so write in whatever shorthand works for you: timestamps, exact phrases, numbers mentioned, anything you want to come back to.</div>';
+  h += '<textarea id="notes-main-ta" style="min-height:280px" placeholder="e.g. 0:40 — acknowledges price increases &amp; delays upfront. 3:10 — three root causes: monsoon, stretched team, oversight gap…">'+esc(S.notes)+'</textarea>';
+  h += '</div>';
+
+  h += '<div class="btn-row no-print">';
+  h += '<button class="btn btn-primary" id="btn-notes-continue">Continue to Competency 1 &rarr;</button>';
+  h += '<span class="tiny">Section timers begin on the next screen.</span>';
+  h += '</div>';
+  return h;
+}
+
+/* ── COMPETENCY SECTION ──────────────────────────────────────── */
+function viewComp(sec) {
+  const c = COMPETENCIES[sec.ci];
+  const d = S.comps[sec.ci];
+  let h = '';
+  h += '<h1>Competency ' + c.n + ' <span>' + esc(c.name) + '</span></h1>';
+  h += '<p class="sub">' + esc(c.tag) + '</p>';
+
+  h += '<div class="card">';
+  h += '<div class="lbl">Key elements &mdash; map every observation to one of these</div>';
+  h += '<div class="elems">';
+  c.elements.forEach(function(e){ h += '<div class="elem"><b>'+esc(e[0])+'</b> &mdash; '+esc(e[1])+'</div>'; });
+  h += '</div>';
+
+  h += '<div class="lbl">What did you observe?</div>';
+  h += '<p class="muted" style="margin-bottom:1rem">Write the actual behaviour &mdash; verbatim or as close as possible. Write what was SAID or DONE, not your interpretation of it.</p>';
+  h += '<div class="obs-head"><div>Observation &mdash; what was said or done</div><div>Competency element</div><div>Evidence type</div></div>';
+  d.obs.forEach(function(o, i){
+    h += '<div class="obs-row">';
+    h += '<div class="obs-cell"><span class="obs-n">'+(i+1)+'</span>'
+      +  '<textarea id="o-'+sec.ci+'-'+i+'-text" placeholder="'+(i===0?'e.g. Said: &quot;that is on us&quot; when opening — named the delays without being prompted':'…')+'">'+esc(o.text)+'</textarea></div>';
+    h += '<div>'+selectHTML('o-'+sec.ci+'-'+i+'-element', c.elements.map(function(e){return e[0];}), o.element, 'Select element')+'</div>';
+    h += '<div>'+selectHTML('o-'+sec.ci+'-'+i+'-type', EVIDENCE, o.type, 'Select type')+'</div>';
+    h += '</div>';
+  });
+  h += '<button class="linkbtn no-print" id="btn-addrow">+ Add another observation</button>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="lbl">Your inference</div>';
+  h += '<p class="muted" style="margin-bottom:.625rem">What does this tell you about this person\'s capability on this competency? Write your conclusion separately from the observations above.</p>';
+  h += '<textarea id="c-inference" style="min-height:110px" placeholder="Your conclusion — not a restatement of the behaviour">'+esc(d.inference)+'</textarea>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="lbl">Your score &mdash; one of the nine allowed values</div>';
+  h += '<div class="scale">';
+  SCORES.forEach(function(v, i){
+    const id = 'sc-'+sec.ci+'-'+i;
+    h += '<input type="radio" name="score-'+sec.ci+'" id="'+id+'" value="'+v+'"'+(d.score===v?' checked':'')+'>';
+    h += '<label for="'+id+'">'+v+'</label>';
+  });
+  h += '</div>';
+  h += '<div class="bands">';
+  BANDS.forEach(function(b){
+    h += '<div class="band"><b>'+b[0]+'</b><b style="color:var(--blue1);font-size:10px">'+esc(b[1])+'</b></div>';
+  });
+  h += '</div>';
+  h += '<div class="field" style="margin-top:1.25rem"><label for="c-just">One sentence justifying your score &mdash; reference specific behaviour from your observations</label>';
+  h += '<textarea id="c-just" style="min-height:70px">'+esc(d.justification)+'</textarea></div>';
+  h += '<div class="field" style="margin-bottom:0"><label for="c-class">Classification &mdash; choose the band that matches your score</label>';
+  h += selectHTML('c-class', CLASSES, d.classification, 'Select classification');
+  h += '</div>';
+  h += '<div class="field" style="margin-top:1rem;margin-bottom:0"><label for="c-why">Why &mdash; in one to two sentences, reference specific behaviour from your observations</label>';
+  h += '<textarea id="c-why" style="min-height:70px">'+esc(d.why)+'</textarea></div>';
+  h += '</div>';
+
+  h += sectionFooter();
+  return h;
+}
+
+function selectHTML(id, opts, val, placeholder) {
+  let h = '<select id="'+id+'"><option value="">'+esc(placeholder)+'</option>';
+  opts.forEach(function(o){
+    const v = Array.isArray(o) ? o[0] : o;
+    const l = Array.isArray(o) ? o[1] : o;
+    h += '<option value="'+esc(v)+'"'+(val===v?' selected':'')+'>'+esc(l)+'</option>';
+  });
+  return h + '</select>';
+}
+
+/* ── SUMMARY SECTION ─────────────────────────────────────────── */
+function viewSummary() {
+  let h = '';
+  h += '<h1>Summary <span>Scores &amp; Classifications</span></h1>';
+  h += '<p class="sub">Scores and classifications carry forward from the four competency sections. Add a one-line rationale for each, then set your overall rating.</p>';
+  h += '<div class="card">';
+  h += '<table class="sumtable"><thead><tr><th>Competency</th><th style="text-align:center">Score</th><th>Classification</th><th>One-line rationale</th></tr></thead><tbody>';
+  COMPETENCIES.forEach(function(c, i){
+    const d = S.comps[i];
+    h += '<tr>';
+    h += '<td class="comp">'+esc(c.name)+'</td>';
+    h += '<td class="sc">'+(d.score ? esc(d.score) : '<span class="pending">—</span>')+'</td>';
+    h += '<td class="cl">'+(d.classification ? esc(d.classification) : '<span class="pending">not recorded</span>')+'</td>';
+    h += '<td><textarea id="s-rat-'+i+'" style="min-height:56px" placeholder="One line">'+esc(d.rationale)+'</textarea></td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="lbl">Overall rating</div>';
+  h += '<div class="scale">';
+  SCORES.forEach(function(v, i){
+    const id = 'ov-'+i;
+    h += '<input type="radio" name="overall-score" id="'+id+'" value="'+v+'"'+(S.overall.rating===v?' checked':'')+'>';
+    h += '<label for="'+id+'">'+v+'</label>';
+  });
+  h += '</div>';
+  h += '<div class="field" style="margin-top:1.25rem;margin-bottom:0"><label for="ov-class">Overall classification</label>';
+  h += selectHTML('ov-class', CLASSES, S.overall.ratingClass, 'Select classification');
+  h += '</div>';
+  h += '</div>';
+  h += sectionFooter();
+  return h;
+}
+
+/* ── OVERALL OBSERVATIONS ────────────────────────────────────── */
+function viewOverall() {
+  const o = S.overall;
+  let h = '';
+  h += '<h1>Overall <span>Observations</span></h1>';
+  h += '<p class="sub">The last timed section. Reference actual behaviour in each answer.</p>';
+  h += '<div class="card"><div class="field" style="margin-bottom:0">';
+  h += '<label for="ov-strong">Strongest behavioural moment(s)</label>';
+  h += '<p class="muted" style="margin-bottom:.5rem">Where did you see the clearest, most specific evidence of capability? Reference the actual behaviour.</p>';
+  h += '<textarea id="ov-strong" style="min-height:120px">'+esc(o.strongest)+'</textarea></div></div>';
+  h += '<div class="card"><div class="field" style="margin-bottom:0">';
+  h += '<label for="ov-gap">Clearest gap or missed opportunity</label>';
+  h += '<p class="muted" style="margin-bottom:.5rem">Where did you observe behaviour that fell below expectation, or was absent when it should have been present?</p>';
+  h += '<textarea id="ov-gap" style="min-height:120px">'+esc(o.gap)+'</textarea></div></div>';
+  h += '<div class="card"><div class="field" style="margin-bottom:0">';
+  h += '<label for="ov-ready">Overall readiness assessment</label>';
+  h += '<p class="muted" style="margin-bottom:.5rem">Based on what you observed, what is your view of this person\'s readiness for a role at this level?</p>';
+  h += '<textarea id="ov-ready" style="min-height:120px">'+esc(o.readiness)+'</textarea></div></div>';
+  h += sectionFooter();
+  return h;
+}
+
+function sectionFooter() {
+  const isLast = S.idx === SECTIONS.length - 2;
+  let h = '<div class="btn-row no-print">';
+  h += '<button class="btn btn-primary" id="btn-next">'+(isLast ? 'Finish and submit →' : 'Complete section →')+'</button>';
+  h += '<button class="btn btn-ghost" id="btn-fw">Framework</button>';
+  h += '<button class="btn btn-ghost" id="btn-notes-open">My Notes</button>';
+  h += '<span class="tiny">Once you leave this section you cannot return to it.</span>';
+  h += '</div>';
+  return h;
+}
+
+/* ── DONE ────────────────────────────────────────────────────── */
+const SUBMIT_EMAIL = 'AIVA.admin@right.com';
+function formatDateLong(d) {
+  if (!d) return 'Unknown date';
+  const parts = d.split('-');
+  if (parts.length !== 3) return d;
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const y = parseInt(parts[0],10), m = parseInt(parts[1],10), day = parseInt(parts[2],10);
+  if (!y || !m || !day) return d;
+  return day + ' ' + months[m-1] + ' ' + y;
+}
+function submitSubject() {
+  return 'AIVA Assessment Simulation — ' + (S.name.trim() || 'Unknown') + ' — ' + formatDateLong(S.date);
+}
+function copySubject() {
+  const text = submitSubject();
+  function ok(){ toast('Subject line copied'); }
+  function fallback() {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.readOnly = true; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, 99999);
+      allowCopyOnce = true;
+      const success = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (success) ok(); else toast('Copy failed — select the text manually');
+    } catch(e) { toast('Copy failed — select the text manually'); }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok, fallback);
+  } else fallback();
+}
+
+function viewDone() {
+  const miss = missing();
+  let h = '';
+  h += '<h1>Submit Your <span>Responses</span></h1>';
+  h += '<p class="sub">Your responses will be packaged as a PDF and downloaded to your device</p>';
+
+  if (miss.length) {
+    h += '<div class="note warnbox no-print"><strong>'+miss.length+' item'+(miss.length>1?'s were':' was')+' left blank when time expired.</strong> '
+      +  'Blank fields are recorded as blank and score zero. They cannot be filled in now.<div class="tiny" style="margin-top:.4rem;color:inherit">'+esc(miss.slice(0,8).join(' · '))+(miss.length>8?' · …':'')+'</div></div>';
+  }
+
+  h += '<div class="card no-print">';
+  h += '<div class="lbl">What happens when you submit</div>';
+  h += '<p class="muted" style="margin-bottom:.5rem">A PDF containing all your responses will be generated in your browser and downloaded automatically.</p>';
+  h += '<p class="muted">Email this file to the AIVA administrator to complete your submission.</p>';
+  h += '</div>';
+
+  h += '<div class="subbox no-print">';
+  h += '<div class="field"><label>Email your submission to</label><div class="mono-input">'+esc(SUBMIT_EMAIL)+'</div></div>';
+  h += '<div class="field"><label>Subject line — use exactly</label><div class="mono-input">'+esc(submitSubject())+'</div>'
+    +  '<button class="btn btn-ghost no-print" id="btn-copy-subject" style="margin-top:.5rem;padding:.4rem .875rem;font-size:11px">Copy subject line</button></div>';
+  h += '<div class="tiny">Attach the downloaded PDF. Your submission is not complete until the email is sent.</div>';
+  h += '</div>';
+
+  h += '<div class="card no-print check-card">';
+  h += '<input type="checkbox" id="submit-ack">';
+  h += '<label for="submit-ack">I understand I must email the downloaded PDF to '+esc(SUBMIT_EMAIL)+' immediately after downloading to complete my submission.</label>';
+  h += '</div>';
+
+  h += '<div class="btn-row no-print">';
+  h += '<button class="btn btn-gold" id="btn-pdf" disabled>&#11015; Download Submission PDF</button>';
+  h += '</div>';
+
+  h += '<div class="card review-card">';
+  h += '<div class="lbl">Your completed responses</div>';
+  h += reviewHTML();
+  h += '</div>';
+
+  h += '<div class="card no-print"><div class="lbl">Session record</div>';
+  h += '<div class="muted">Sections closed by the timer: <strong>'+(S.integrity.expired.length || 0)+'</strong> &nbsp;&middot;&nbsp; '
+    +  'Paste attempts blocked: <strong>'+S.integrity.paste+'</strong> &nbsp;&middot;&nbsp; '
+    +  'Copy attempts blocked: <strong>'+(S.integrity.copy||0)+'</strong> &nbsp;&middot;&nbsp; '
+    +  'Screenshot key presses detected: <strong>'+(S.integrity.screenshot||0)+'</strong> &nbsp;&middot;&nbsp; '
+    +  'Times the window lost focus: <strong>'+S.integrity.blur+'</strong></div>';
+  h += '</div>';
+  return h;
+}
+
+function reviewHTML() {
+  let h = '';
+  h += '<div style="margin-bottom:1.5rem">';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--blue1);margin-bottom:.625rem">Listening Notes</div>';
+  h += revBlk('Notes taken while listening', S.notes);
+  h += '</div>';
+  COMPETENCIES.forEach(function(c, i){
+    const d = S.comps[i];
+    h += '<div style="margin-bottom:1.5rem">';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--blue1);margin-bottom:.625rem">'+c.n+'. '+esc(c.name)+'</div>';
+    d.obs.forEach(function(o, j){
+      if (!o.text && !o.element && !o.type) return;
+      const cls = o.type==='Positive' ? 'pos' : (o.type==='Developmental' ? 'dev' : '');
+      h += '<div class="review-blk"><div class="review-q">Observation '+(j+1)+'</div>';
+      h += '<div class="review-a'+(o.text?'':' empty')+'">'+esc(o.text||'(blank)')+'</div>';
+      h += '<div class="tiny">'+esc(o.element||'no element recorded')+'<span class="chip '+cls+'">'+esc(o.type||'no type')+'</span></div></div>';
+    });
+    h += revBlk('Inference', d.inference);
+    h += '<div class="review-blk"><div class="review-q">Score &amp; classification</div><div class="review-a'+(d.score?'':' empty')+'">'
+      +  esc(d.score||'(blank)')+' — '+esc(d.classification||'(no classification)')+'</div></div>';
+    h += revBlk('Score justification', d.justification);
+    h += revBlk('Why this classification', d.why);
+    h += revBlk('Summary rationale', d.rationale);
+    h += '</div>';
+  });
+  h += '<div style="font-size:13px;font-weight:700;color:var(--blue1);margin-bottom:.625rem">Overall</div>';
+  h += '<div class="review-blk"><div class="review-q">Overall rating</div><div class="review-a'+(S.overall.rating?'':' empty')+'">'
+    +  esc(S.overall.rating||'(blank)')+' — '+esc(S.overall.ratingClass||'(no classification)')+'</div></div>';
+  h += revBlk('Strongest behavioural moment(s)', S.overall.strongest);
+  h += revBlk('Clearest gap or missed opportunity', S.overall.gap);
+  h += revBlk('Overall readiness assessment', S.overall.readiness);
+  return h;
+}
+function revBlk(q, a) {
+  return '<div class="review-blk"><div class="review-q">'+esc(q)+'</div><div class="review-a'+(a?'':' empty')+'">'+esc(a||'(blank)')+'</div></div>';
+}
+
+/* ═══ BINDING ════════════════════════════════════════════════ */
+function bind(sec) {
+  if (sec.kind === 'setup') {
+    on('f-name','input',function(e){
+      S.name = e.target.value; save();
+      const has = !!S.name.trim();
+      const btn = $('btn-begin'), hint = $('begin-hint');
+      if (btn) btn.disabled = !has;
+      if (hint) hint.textContent = has ? 'Section timers start once you click.' : 'Enter your name above to continue.';
+      paintWatermark();
+    });
+    on('f-date','input',function(e){ S.date = e.target.value; save(); });
+    on('btn-begin','click', beginSheet);
+    on('btn-resume-inline','click', function(){ render(); startSection(S.idx, true); });
+    return;
+  }
+  if (sec.kind === 'notes') {
+    on('notes-main-ta','input', function(e){ S.notes = e.target.value; save(); });
+    on('btn-notes-continue','click', function(){
+      showConfirm('Continue to the timed sections?', 'Your notes stay available from the My Notes button. Once you continue, section timers begin and cannot be paused.', function(){
+        advance(false);
+      });
+    });
+    return;
+  }
+  if (sec.kind === 'done') {
+    on('btn-pdf','click', downloadPdf);
+    on('submit-ack','change', function(e){ $('btn-pdf').disabled = !e.target.checked; });
+    on('btn-copy-subject','click', copySubject);
+    return;
+  }
+
+  on('btn-next','click', function(){
+    showConfirm('Complete this section?', 'You will not be able to return to it.', function(){ advance(false); });
+  });
+  on('btn-fw','click', function(){ $('fw-body').innerHTML = frameworkHTML(); $('fw-modal').classList.add('show'); });
+  on('btn-notes-open','click', function(){ $('notes-ta').value = S.notes; $('notes-modal').classList.add('show'); });
+
+  if (sec.kind === 'comp') {
+    const ci = sec.ci, d = S.comps[ci];
+    d.obs.forEach(function(o, i){
+      on('o-'+ci+'-'+i+'-text','input', function(e){ o.text = e.target.value; save(); });
+      on('o-'+ci+'-'+i+'-element','change', function(e){ o.element = e.target.value; save(); });
+      on('o-'+ci+'-'+i+'-type','change', function(e){ o.type = e.target.value; save(); });
+    });
+    on('c-inference','input', function(e){ d.inference = e.target.value; save(); });
+    on('c-just','input', function(e){ d.justification = e.target.value; save(); });
+    on('c-why','input', function(e){ d.why = e.target.value; save(); });
+    on('c-class','change', function(e){ d.classification = e.target.value; save(); });
+    document.querySelectorAll('input[name="score-'+ci+'"]').forEach(function(r){
+      r.addEventListener('change', function(e){ d.score = e.target.value; save(); });
+    });
+    on('btn-addrow','click', function(){
+      if (isLocked()) return;
+      d.obs.push({text:'', element:'', type:''});
+      save(); render();
+    });
+  }
+
+  if (sec.kind === 'summary') {
+    S.comps.forEach(function(d, i){
+      on('s-rat-'+i,'input', function(e){ d.rationale = e.target.value; save(); });
+    });
+    on('ov-class','change', function(e){ S.overall.ratingClass = e.target.value; save(); });
+    document.querySelectorAll('input[name="overall-score"]').forEach(function(r){
+      r.addEventListener('change', function(e){ S.overall.rating = e.target.value; save(); });
+    });
+  }
+
+  if (sec.kind === 'overall') {
+    on('ov-strong','input', function(e){ S.overall.strongest = e.target.value; save(); });
+    on('ov-gap','input', function(e){ S.overall.gap = e.target.value; save(); });
+    on('ov-ready','input', function(e){ S.overall.readiness = e.target.value; save(); });
+  }
+
+  if (isLocked()) lockInputs();
+}
+function on(id, ev, fn) { const el = $(id); if (el) el.addEventListener(ev, fn); }
+
+/* ═══ TIMER ══════════════════════════════════════════════════ */
+function beginSheet() {
+  if (!S.name.trim()) { toast('Enter your name before you begin'); $('f-name').focus(); return; }
+  S.startedAt = Date.now();
+  S.idx = 1;
+  startSection(1, false);
+}
+
+function startSection(idx, resuming) {
+  S.idx = idx;
+  const sec = SECTIONS[idx];
+  if (sec.secs > 0) {
+    if (!resuming || !S.deadline) S.deadline = Date.now() + sec.secs*1000;
+  } else {
+    S.deadline = null;
+  }
+  save();
+  render();
+  tick();
+}
+
+function advance(expired) {
+  const sec = cur();
+  if (expired && S.integrity.expired.indexOf(sec.id) === -1) S.integrity.expired.push(sec.id);
+  S.lockedIdx = S.idx;
+  const next = S.idx + 1;
+  S.deadline = null;
+  if (next >= SECTIONS.length) { S.idx = SECTIONS.length - 1; save(); render(); return; }
+  startSection(next, false);
+  if (expired) toast('Time expired — section closed', 3000);
+}
+
+function isLocked() { return false; }
+function lockInputs() {
+  document.querySelectorAll('#wrap input, #wrap textarea, #wrap select, #wrap .linkbtn').forEach(function(el){ el.disabled = true; });
+}
+
+let ticking = null;
+function tick() {
+  if (ticking) clearInterval(ticking);
+  ticking = setInterval(step, 250);
+  step();
+}
+function step() {
+  const sec = cur();
+  if (!sec || sec.secs === 0 || !S.deadline) { updateTimerBar(); return; }
+  const left = (S.deadline - Date.now())/1000;
+  paintClock(left, sec.secs);
+  if (left <= 0) {
+    clearInterval(ticking); ticking = null;
+    if (HARD_LOCK) {
+      lockInputs();
+      setTimeout(function(){ advance(true); }, 900);
+    }
+  }
+}
+function paintClock(left, total) {
+  const c = $('clock'), f = $('tb-fill');
+  c.textContent = mmss(left);
+  const pct = Math.max(0, Math.min(100, (left/total)*100));
+  f.style.width = pct + '%';
+  c.className = 'clock' + (left <= 15 ? ' crit' : (left <= 60 ? ' warn' : ''));
+  f.className = 'tb-prog-fill' + (left <= 15 ? ' crit' : (left <= 60 ? ' warn' : ''));
+}
+function updateTimerBar() {
+  const sec = cur();
+  const bar = $('timerbar');
+  if (!sec || sec.secs === 0) { bar.classList.remove('show'); return; }
+  bar.classList.add('show');
+  $('tb-sec').textContent = sec.title;
+  const pos = TIMED.indexOf(sec) + 1;
+  $('tb-step').textContent = 'Section ' + pos + ' of ' + TIMED.length;
+  let dh = '';
+  TIMED.forEach(function(s, i){
+    dh += '<div class="dot ' + (i+1 < pos ? 'done' : (i+1 === pos ? 'now' : '')) + '"></div>';
+  });
+  $('dots').innerHTML = dh;
+  if (S.deadline) paintClock((S.deadline - Date.now())/1000, sec.secs);
+}
+
+/* ═══ ANTI-ASSIST GUARDS ═════════════════════════════════════ */
+if (BLOCK_PASTE) {
+  document.addEventListener('paste', function(e){
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) {
+      e.preventDefault();
+      S.integrity.paste++; save();
+      toast('Pasting is disabled in this sheet — type your observations', 2600);
+    }
+  }, true);
+  document.addEventListener('drop', function(e){
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) { e.preventDefault(); S.integrity.paste++; save(); }
+  }, true);
+}
+let allowCopyOnce = false;
+document.addEventListener('copy', function(e){
+  if (allowCopyOnce) { allowCopyOnce = false; return; }
+  e.preventDefault();
+  S.integrity.copy = (S.integrity.copy||0) + 1; save();
+  toast('Copying is disabled on this screen', 2200);
+}, true);
+document.addEventListener('cut', function(e){
+  e.preventDefault();
+  S.integrity.copy = (S.integrity.copy||0) + 1; save();
+  toast('Cutting is disabled on this screen', 2200);
+}, true);
+document.addEventListener('contextmenu', function(e){
+  e.preventDefault();
+}, true);
+/* Best-effort only: PrintScreen fires a key event in some Windows browser
+   builds, but nothing in the web platform can see or block OS-level screen
+   capture (Snipping Tool, PrtScn, macOS Cmd+Shift+3/4/5, or a phone camera).
+   This just logs an attempt and nudges the assessor — see the watermark
+   below for the actual deterrent, which works regardless of capture method. */
+document.addEventListener('keyup', function(e){
+  if (e.key === 'PrintScreen' || e.keyCode === 44) {
+    S.integrity.screenshot = (S.integrity.screenshot||0) + 1; save();
+    toast('This screen is watermarked with your name and the time', 3000);
+  }
+});
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden && S.idx > 0 && S.idx < SECTIONS.length-1) { S.integrity.blur++; save(); }
+});
+window.addEventListener('beforeunload', function(e){
+  if (S.idx > 0 && S.idx < SECTIONS.length-1) { e.preventDefault(); e.returnValue = ''; }
+});
+
+/* ═══ VALIDATION ═════════════════════════════════════════════ */
+function missing() {
+  const m = [];
+  if (!S.name.trim()) m.push('Assessor name');
+  COMPETENCIES.forEach(function(c, i){
+    const d = S.comps[i];
+    const filled = d.obs.filter(function(o){ return o.text.trim(); }).length;
+    if (filled < 2) m.push(c.name + ': observations');
+    if (!d.inference.trim()) m.push(c.name + ': inference');
+    if (!d.score) m.push(c.name + ': score');
+    if (!d.justification.trim()) m.push(c.name + ': justification');
+    if (!d.classification) m.push(c.name + ': classification');
+    if (!d.why.trim()) m.push(c.name + ': why');
+    if (!d.rationale.trim()) m.push(c.name + ': summary rationale');
+  });
+  if (!S.overall.rating) m.push('Overall rating');
+  if (!S.overall.ratingClass) m.push('Overall classification');
+  if (!S.overall.strongest.trim()) m.push('Strongest moment');
+  if (!S.overall.gap.trim()) m.push('Clearest gap');
+  if (!S.overall.readiness.trim()) m.push('Readiness assessment');
+  return m;
+}
+
+/* ═══ EXPORT ═════════════════════════════════════════════════ */
+function sheetLines() {
+  const L = [];
+  L.push('OBSERVATION HUB');
+  L.push('Chemistik Industries — Customer Role Play — Assessment Observation Exercise');
+  L.push('Practice Alignment Programme | Assessment Simulation');
+  L.push('');
+  L.push('Assessor Name: ' + (S.name || 'Unknown'));
+  L.push('Date: ' + (S.date || 'Unknown'));
+  L.push('Assessee: Sunil Jain — VP, Key Accounts & Business Development, Chemistik Industries');
+  L.push('Tool: Customer Role Play — Recovering a High-Value B2B Client Relationship');
+  L.push('');
+  L.push('');
+  L.push('LISTENING NOTES');
+  L.push(S.notes.trim() || '(no notes recorded)');
+
+  COMPETENCIES.forEach(function(c, i){
+    const d = S.comps[i];
+    L.push('');
+    L.push('COMPETENCY ' + c.n + ' — ' + c.name.toUpperCase());
+    L.push(c.tag);
+    L.push('');
+    L.push('Observations — what was said or done:');
+    let any = false;
+    d.obs.forEach(function(o, j){
+      if (!o.text.trim() && !o.element && !o.type) return;
+      any = true;
+      L.push('  Observation ' + (j+1) + ': ' + (o.text.trim() || '(blank)'));
+      L.push('    Competency element: ' + (o.element || '(not recorded)'));
+      L.push('    Evidence type: ' + (o.type || '(not recorded)'));
+    });
+    if (!any) L.push('  (no observations recorded)');
+    L.push('');
+    L.push('Inference: ' + (d.inference.trim() || '(blank)'));
+    L.push('Score: ' + (d.score || '(blank)'));
+    L.push('Score justification: ' + (d.justification.trim() || '(blank)'));
+    L.push('Classification: ' + (d.classification || '(blank)'));
+    L.push('Why: ' + (d.why.trim() || '(blank)'));
+  });
+
+  L.push('');
+  L.push('');
+  L.push('SUMMARY — SCORES AND CLASSIFICATIONS ACROSS ALL COMPETENCIES');
+  COMPETENCIES.forEach(function(c, i){
+    const d = S.comps[i];
+    L.push(c.name + ' | Score: ' + (d.score || '(blank)') + ' | Classification: ' + (d.classification || '(blank)')
+      + ' | Rationale: ' + (d.rationale.trim() || '(blank)'));
+  });
+  L.push('Overall Rating | Score: ' + (S.overall.rating || '(blank)') + ' | Classification: ' + (S.overall.ratingClass || '(blank)'));
+
+  L.push('');
+  L.push('');
+  L.push('OVERALL OBSERVATIONS');
+  L.push('Strongest behavioural moment(s): ' + (S.overall.strongest.trim() || '(blank)'));
+  L.push('');
+  L.push('Clearest gap or missed opportunity: ' + (S.overall.gap.trim() || '(blank)'));
+  L.push('');
+  L.push('Overall readiness assessment: ' + (S.overall.readiness.trim() || '(blank)'));
+
+  L.push('');
+  L.push('');
+  L.push('SESSION RECORD (generated automatically)');
+  L.push('Sections closed by the timer: ' + S.integrity.expired.length + (S.integrity.expired.length ? ' (' + S.integrity.expired.join(', ') + ')' : ''));
+  L.push('Paste attempts blocked: ' + S.integrity.paste);
+  L.push('Copy attempts blocked: ' + (S.integrity.copy||0));
+  L.push('Screenshot key presses detected: ' + (S.integrity.screenshot||0));
+  L.push('Times the window lost focus: ' + S.integrity.blur);
+  return L;
+}
+
+function fileBase() {
+  const nm = (S.name || 'Assessor').replace(/[^A-Za-z0-9 _-]/g,'').trim() || 'Assessor';
+  return 'Observation Hub - ' + nm + ' - ' + (S.date || '');
+}
+
+/* ── PDF (the file the admin scoring tool reads) ─────────────── */
+function downloadPdf() {
+  if (!window.jspdf || !window.jspdf.jsPDF) { toast('PDF export unavailable — please reload the page and try again'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'pt', format:'a4'});
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX = 50, marginTop = 56, marginBottom = 56;
+  const maxW = pageW - marginX*2;
+  let y = marginTop;
+
+  function ensureRoom(h) {
+    if (y + h > pageH - marginBottom) { doc.addPage(); y = marginTop; }
+  }
+  function writeTitle(text) {
+    ensureRoom(28);
+    doc.setFont('helvetica','bold'); doc.setFontSize(17); doc.setTextColor(56,96,151);
+    doc.text(text, marginX, y);
+    y += 26;
+  }
+  function writeHeading(text) {
+    ensureRoom(26);
+    doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(40,42,50);
+    doc.text(text, marginX, y);
+    y += 10;
+    doc.setDrawColor(201,168,76); doc.setLineWidth(1);
+    doc.line(marginX, y, marginX+maxW, y);
+    y += 16;
+  }
+  function writeBody(text) {
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60,62,68);
+    const lines = doc.splitTextToSize(text, maxW);
+    lines.forEach(function(line){
+      ensureRoom(14);
+      doc.text(line, marginX, y);
+      y += 14;
+    });
+  }
+
+  sheetLines().forEach(function(t){
+    if (t === '') { y += 8; return; }
+    if (t === 'OBSERVATION HUB') { writeTitle(t); return; }
+    if (/^(LISTENING NOTES|COMPETENCY \d|SUMMARY —|OVERALL OBSERVATIONS|SESSION RECORD)/.test(t)) { writeHeading(t); return; }
+    writeBody(t);
+  });
+
+  doc.save(fileBase() + '.pdf');
+  toast('PDF downloaded — send it to your administrator', 3200);
+}
+
+/* ═══ WATERMARK ══════════════════════════════════════════════
+   Cannot block screen capture — no web page can, on any OS or
+   browser. This makes any screenshot traceable back to the
+   assessor and the exact minute it was taken. */
+function paintWatermark() {
+  const who = (S.name || 'AIVA Assessment Simulation').trim();
+  const stamp = new Date().toLocaleString('en-GB', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'});
+  const label = who + '  ·  ' + stamp;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280">'
+    + '<text x="-20" y="150" transform="rotate(-30 200 140)" font-family="DM Sans, Arial, sans-serif" font-size="15" fill="rgba(40,42,50,0.075)">'
+    + esc(label) + '</text></svg>';
+  $('watermark').style.backgroundImage = 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
+}
+setInterval(paintWatermark, 60000);
+
+/* ═══ BOOT ═══════════════════════════════════════════════════ */
+$('fw-close').addEventListener('click', function(){ $('fw-modal').classList.remove('show'); });
+$('fw-modal').addEventListener('click', function(e){ if (e.target === $('fw-modal')) $('fw-modal').classList.remove('show'); });
+$('notes-close').addEventListener('click', function(){ $('notes-modal').classList.remove('show'); });
+$('notes-modal').addEventListener('click', function(e){ if (e.target === $('notes-modal')) $('notes-modal').classList.remove('show'); });
+$('notes-ta').addEventListener('input', function(e){ S.notes = e.target.value; save(); });
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') { $('fw-modal').classList.remove('show'); $('notes-modal').classList.remove('show'); }
+});
+
+restored = load();
+if (restored && S.idx > 0 && S.idx < SECTIONS.length - 1) {
+  // Resume mid-exercise. Deadlines are absolute timestamps, so a refresh
+  // does not hand the assessor extra time.
+  render();
+  if (S.deadline && Date.now() >= S.deadline) { advance(true); }
+  else if (S.deadline) { tick(); }
+  else { startSection(S.idx, false); }
+} else {
+  render();
+}
+paintWatermark();
+</script>
+</body>
+</html>

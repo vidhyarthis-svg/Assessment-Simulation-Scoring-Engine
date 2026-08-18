@@ -1,0 +1,6 @@
+# Keep source docs (rubric, script, competencies) OFF the public deployment.
+# The repo is private, but a static deploy would otherwise serve these
+# files at the public *.vercel.app URL.
+docs/
+README.md
+.gitignore
