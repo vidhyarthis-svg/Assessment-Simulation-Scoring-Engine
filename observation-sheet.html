@@ -24,6 +24,9 @@ header{background:var(--gray1);padding:.75rem 1.5rem;display:flex;align-items:ce
 .hdr-sub{font-size:10px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
 .badge{background:var(--blue1);color:#fff;font-size:10px;font-weight:700;padding:.3rem .875rem;border-radius:2px;letter-spacing:.08em;text-transform:uppercase}
 
+/* ── NO-REFRESH BANNER ──────────────────────────────── */
+.norefresh-banner{position:sticky;top:0;z-index:70;background:#FDF2F0;border-bottom:2px solid var(--orange2);padding:.55rem 1.5rem;text-align:center;font-size:12px;font-weight:700;color:#8B2500;line-height:1.5}
+
 /* ── TIMER BAR ──────────────────────────────────────── */
 .timerbar{position:sticky;top:0;z-index:50;background:var(--surface);border-bottom:1px solid var(--border);box-shadow:0 2px 8px rgba(40,42,50,.06);display:none}
 .timerbar.show{display:block}
@@ -81,6 +84,8 @@ input:disabled,textarea:disabled,select:disabled{background:var(--gray4);color:v
 .note{border-left:3px solid var(--blue1);background:#EDF3FA;padding:.75rem 1rem;font-size:13px;color:var(--gray1);border-radius:0 var(--radius) var(--radius) 0;margin-bottom:1rem}
 .note.warnbox{border-left-color:var(--orange2);background:#FDF2F0;color:#8B2500}
 .note.okbox{border-left-color:#2E7D32;background:#E8F5EC;color:var(--green)}
+.audio-bar{height:6px;background:var(--gray4);border-radius:3px;overflow:hidden}
+.audio-bar-fill{height:100%;width:0%;background:var(--blue1);transition:width .2s linear}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:1.5rem;background:var(--gray1);color:#fff;font-size:13px;font-weight:600;padding:.7rem 1.25rem;border-radius:var(--radius);box-shadow:var(--shadow);z-index:200;opacity:0;pointer-events:none;transition:opacity .2s}
 #watermark{position:fixed;inset:0;z-index:300;pointer-events:none;background-repeat:repeat;mix-blend-mode:multiply}
 .toast.show{opacity:1}
@@ -179,6 +184,8 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
   <span class="badge" id="hdr-badge">Assessor</span>
 </header>
 
+<div class="norefresh-banner no-print">Do not refresh, close, or navigate away from this tab. Nothing is saved automatically &mdash; doing so will lose all of your responses.</div>
+
 <!-- ══ TIMER BAR ══════════════════════════════════════ -->
 <div class="timerbar" id="timerbar">
   <div class="tb-inner">
@@ -201,7 +208,11 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
 
 <footer>
   <div class="ftr-l">AIVA Practice Alignment Programme</div>
-  <div class="ftr-r">Right Management India</div>
+  <div style="display:flex;align-items:center;gap:1rem">
+    <!-- TESTING ONLY — delete this button (and its handler in the BOOT section) before go-live -->
+    <button id="btn-testing-reset" class="no-print" style="background:none;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.55);font-family:var(--font);font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:.3rem .625rem;border-radius:var(--radius);cursor:pointer">&#8635; Reset (testing only)</button>
+    <div class="ftr-r">Right Management India</div>
+  </div>
 </footer>
 
 <!-- ══ FRAMEWORK MODAL ════════════════════════════════ -->
@@ -248,13 +259,16 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
 /* ═══════════════════════════════════════════════════════════════
    CONFIGURATION — section time limits (in seconds)
    Adjust these values to change how long each section stays open.
-   Total below = 19 minutes of timed writing.
+   Total below = 24 minutes of timed writing (5 of it starting only
+   once the role play audio finishes playing).
    ═══════════════════════════════════════════════════════════════ */
 const TIMING = {
+  listeningNotes: 300, // 5:00 — starts once the role play audio ends, not on section entry
   competency: 210,   // 3:30 per competency  x4 = 14:00
   summary:    120,   // 2:00
   overall:    180    // 3:00
 };
+const AUDIO_SRC = 'audio/role-play.mp3';
 const HARD_LOCK = true;   // true = section locks and auto-advances when time expires
 const BLOCK_PASTE = true; // true = pasting into the sheet is blocked
 
@@ -325,7 +339,7 @@ const STORE_KEY = 'aiva-assessment-sim-obshub-v1';
 /* ── SECTION MAP ─────────────────────────────────────────────── */
 const SECTIONS = [
   {id:'setup', title:'Before You Begin', kind:'setup', secs:0},
-  {id:'notes', title:'Listening Notes', kind:'notes', secs:0},
+  {id:'notes', title:'Listening Notes', kind:'notes', secs:TIMING.listeningNotes},
   {id:'c1', title:'Competency 1 — Result Orientation', kind:'comp', ci:0, secs:TIMING.competency},
   {id:'c2', title:'Competency 2 — Commercial Acumen', kind:'comp', ci:1, secs:TIMING.competency},
   {id:'c3', title:'Competency 3 — Customer Orientation', kind:'comp', ci:2, secs:TIMING.competency},
@@ -339,9 +353,10 @@ const TIMED = SECTIONS.filter(function(s){ return s.secs > 0; });
 /* ── STATE ───────────────────────────────────────────────────── */
 function blankState() {
   return {
-    name: '', date: new Date().toISOString().slice(0,10),
+    name: '', firstName: '', lastName: '', accessCode: '', date: new Date().toISOString().slice(0,10),
     idx: 0, deadline: null, startedAt: null,
     notes: '',
+    audio: {started:false, ended:false, stalls:0, preloadRetries:0, forcedIncomplete:false, lastPosition:0},
     comps: COMPETENCIES.map(function(){
       return {
         obs: Array.from({length:OBS_ROWS}, function(){ return {text:'', element:'', type:''}; }),
@@ -355,6 +370,13 @@ function blankState() {
 }
 let S = blankState();
 let restored = false;
+
+/* Audio preload state — session-only, not persisted (a blob: URL is only
+   ever valid for the lifetime of this page load). */
+let audioBlobUrl = null;
+let audioPreloadState = 'idle'; // 'idle' | 'loading' | 'ready' | 'error'
+let audioPreloadPct = 0;
+let audioPositionTimer = null;
 
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch(e){} }
 function load() {
@@ -391,6 +413,46 @@ function showConfirm(title, body, onYes) {
 }
 function cur(){ return SECTIONS[S.idx]; }
 
+/* ── ACCESS CODE ─────────────────────────────────────────────────
+   Format: XX-YYYYMMDD-CCCC (initials - generation date - checksum).
+   This logic must stay byte-identical with the admin tool's copy —
+   a code generated there has to validate here with no shared backend. */
+function codeInitials(first, last) {
+  const a = (first||'').trim().charAt(0).toUpperCase();
+  const b = (last||'').trim().charAt(0).toUpperCase();
+  return (a + b) || 'XX';
+}
+function codeChecksum(first, last, dateStr) {
+  const s = (first||'').trim().toUpperCase() + '|' + (last||'').trim().toUpperCase() + '|' + dateStr;
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) { h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; }
+  let b36 = h.toString(36).toUpperCase();
+  if (b36.length < 4) b36 = ('0000' + b36).slice(-4);
+  return b36.slice(-4);
+}
+function todayYYYYMMDD() {
+  const d = new Date();
+  return '' + d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+}
+function generateAccessCode(first, last) {
+  const dateStr = todayYYYYMMDD();
+  return codeInitials(first, last) + '-' + dateStr + '-' + codeChecksum(first, last, dateStr);
+}
+function parseAccessCode(code) {
+  const m = String(code||'').trim().toUpperCase().match(/^([A-Z]{2})-(\d{8})-([A-Z0-9]{4})$/);
+  if (!m) return null;
+  return { initials: m[1], dateStr: m[2], checksum: m[3] };
+}
+function validateAccessCode(first, last, code) {
+  const parsed = parseAccessCode(code);
+  if (!parsed) return { ok:false, reason:'malformed' };
+  const mo = +parsed.dateStr.slice(4,6), da = +parsed.dateStr.slice(6,8);
+  if (mo < 1 || mo > 12 || da < 1 || da > 31) return { ok:false, reason:'malformed' };
+  if (parsed.initials !== codeInitials(first, last)) return { ok:false, reason:'mismatch' };
+  if (parsed.checksum !== codeChecksum(first, last, parsed.dateStr)) return { ok:false, reason:'mismatch' };
+  return { ok:true };
+}
+
 /* ═══ RENDER ═════════════════════════════════════════════════ */
 function render() {
   const sec = cur();
@@ -424,9 +486,14 @@ function viewSetup() {
   h += '<div class="card">';
   h += '<div class="step-head"><span class="step-num">1</span>Your details</div>';
   h += '<div class="grid2">';
-  h += '<div class="field"><label for="f-name">Assessor name <span style="color:var(--red)">*</span> required</label><input type="text" id="f-name" value="'+esc(S.name)+'" placeholder="Your full name" autocomplete="off"></div>';
-  h += '<div class="field"><label for="f-date">Date</label><input type="date" id="f-date" value="'+esc(S.date)+'"></div>';
+  h += '<div class="field"><label for="f-first">First name <span style="color:var(--red)">*</span> required</label><input type="text" id="f-first" value="'+esc(S.firstName)+'" placeholder="First name" autocomplete="off"></div>';
+  h += '<div class="field"><label for="f-last">Last name <span style="color:var(--red)">*</span> required</label><input type="text" id="f-last" value="'+esc(S.lastName)+'" placeholder="Last name" autocomplete="off"></div>';
   h += '</div>';
+  h += '<div class="grid2">';
+  h += '<div class="field"><label for="f-date">Date</label><input type="date" id="f-date" value="'+esc(S.date)+'"></div>';
+  h += '<div class="field"><label for="f-code">Access code <span style="color:var(--red)">*</span> required</label><input type="text" id="f-code" value="'+esc(S.accessCode)+'" placeholder="e.g. PS-20260827-FKX0" autocomplete="off" style="text-transform:uppercase;font-family:monospace"></div>';
+  h += '</div>';
+  h += '<div class="note warnbox" id="code-err" style="display:none;margin-bottom:1rem"></div>';
   h += '<div class="field" style="margin-bottom:0"><label>Assessee</label><div class="muted">Sunil Jain &mdash; VP, Key Accounts &amp; Business Development, Chemistik Industries</div></div>';
   h += '</div>';
 
@@ -436,7 +503,8 @@ function viewSetup() {
     +  'When the countdown reaches zero the section locks automatically and you move to the next one &mdash; '
     +  'you cannot return to a section once it closes. Write continuously and do not stop to look things up.</div>';
   h += '<ol class="muted" style="padding-left:1.25rem">';
-  h += '<li>Click Begin, then play the role play audio &mdash; use the untimed Listening Notes screen to capture rough notes as you go.</li>';
+  h += '<li>Click Begin, then play the role play audio on the Listening Notes screen &mdash; it can only be played <strong>once</strong>, so listen with full attention.</li>';
+  h += '<li>Once the audio ends you have <strong>5 minutes</strong> to finish your notes before this section closes automatically. You can continue sooner if you are ready.</li>';
   h += '<li>Your notes stay available from the <strong>My Notes</strong> button throughout the timed sections that follow.</li>';
   h += '<li><strong>Record what you observed</strong> &mdash; write what was actually SAID or DONE. Stay close to verbatim. Do not interpret in the observation box.</li>';
   h += '<li><strong>Separate observation from inference</strong> &mdash; the observation box and the inference box serve different purposes. Do not mix them.</li>';
@@ -465,8 +533,8 @@ function viewSetup() {
   h += '</div>';
 
   h += '<div class="btn-row no-print">';
-  h += '<button class="btn btn-primary" id="btn-begin"'+(S.name.trim()?'':' disabled')+'>Begin &rarr;</button>';
-  h += '<span class="tiny" id="begin-hint">'+(S.name.trim()?'Section timers start once you click.':'Enter your name above to continue.')+'</span>';
+  h += '<button class="btn btn-primary" id="btn-begin"'+(detailsComplete()?'':' disabled')+'>Begin &rarr;</button>';
+  h += '<span class="tiny" id="begin-hint">'+(detailsComplete()?'Section timers start once you click.':'Enter your name and access code above to continue.')+'</span>';
   h += '</div>';
   return h;
 }
@@ -491,22 +559,184 @@ function frameworkHTML() {
 
 /* ── LISTENING NOTES ─────────────────────────────────────────── */
 function viewNotes() {
+  const a = S.audio;
   let h = '';
   h += '<h1>Listening <span>Notes</span></h1>';
-  h += '<p class="sub">Play the role play audio now and use this space to capture rough notes as you listen.</p>';
+  h += '<p class="sub">Play the role play audio, then use this space to capture rough notes.</p>';
 
   h += '<div class="card">';
-  h += '<div class="note">This screen is untimed. Take as long as the audio runs. Your notes stay open for reference '
-    +  '(via the <strong>My Notes</strong> button) once you move into the timed sections &mdash; they are not scored on their own, '
-    +  'so write in whatever shorthand works for you: timestamps, exact phrases, numbers mentioned, anything you want to come back to.</div>';
+  h += '<div class="lbl">Role play audio</div>';
+  if (!a.ended) {
+    h += '<div class="note warnbox" style="margin-bottom:1rem"><strong>This audio can be played only once.</strong> '
+      +  'There is no rewind or replay once it ends &mdash; make sure you are ready to listen with full attention before you press play.</div>';
+  } else {
+    h += '<div class="note okbox"><strong>&#10003; Audio played.</strong> You have 5 minutes from when it ended to finish your notes below '
+      +  '&mdash; shown in the timer at the top of the page. You can continue sooner if you are ready.</div>';
+  }
+  h += '<div id="audio-area"></div>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="lbl">Your notes</div>';
+  h += '<p class="muted" style="margin-bottom:.75rem">Write in whatever shorthand works for you &mdash; timestamps, exact phrases, numbers mentioned, anything you want to come back to. '
+    +  'These are not scored on their own and stay open for reference (via the <strong>My Notes</strong> button) once you move into the timed sections.</p>';
   h += '<textarea id="notes-main-ta" style="min-height:280px" placeholder="e.g. 0:40 — acknowledges price increases &amp; delays upfront. 3:10 — three root causes: monsoon, stretched team, oversight gap…">'+esc(S.notes)+'</textarea>';
   h += '</div>';
 
   h += '<div class="btn-row no-print">';
-  h += '<button class="btn btn-primary" id="btn-notes-continue">Continue to Competency 1 &rarr;</button>';
-  h += '<span class="tiny">Section timers begin on the next screen.</span>';
+  h += '<button class="btn btn-primary" id="btn-notes-continue"' + (a.ended ? '' : ' disabled') + '>Continue to Competency 1 &rarr;</button>';
+  h += '<span class="tiny">' + (a.ended ? 'Section timers begin on the next screen.' : 'Play the audio above to unlock this button.') + '</span>';
   h += '</div>';
   return h;
+}
+
+/* ── AUDIO: full preload + stall recovery ─────────────────────────
+   The whole file is downloaded into memory (as a blob) before Play is
+   offered, so once playback starts it needs no network at all — a
+   connection drop afterward can't interrupt it. Preload itself retries
+   automatically if the network drops mid-download. As defence in depth,
+   playback also watches for stalls and resumes from the same position
+   rather than treating an interruption as "finished". ────────────── */
+async function preloadAudio() {
+  if (audioPreloadState === 'loading' || audioPreloadState === 'ready') return;
+  audioPreloadState = 'loading'; audioPreloadPct = 0;
+  paintAudioArea();
+  const ctrl = new AbortController();
+  let stallTimeoutId;
+  // Resets on every chunk received, so this only fires on a genuine stall
+  // (no data for 20s) — not a fixed budget that would punish slow connections.
+  function armStallTimeout() {
+    clearTimeout(stallTimeoutId);
+    stallTimeoutId = setTimeout(function(){ ctrl.abort(); }, 20000);
+  }
+  try {
+    armStallTimeout();
+    const resp = await fetch(AUDIO_SRC, {cache:'force-cache', signal: ctrl.signal});
+    if (!resp.ok || !resp.body) throw new Error('bad response');
+    const total = parseInt(resp.headers.get('Content-Length') || '0', 10);
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let received = 0, lastPct = -1;
+    while (true) {
+      armStallTimeout();
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      const pct = total ? Math.min(100, Math.round((received/total)*100)) : 0;
+      if (pct !== lastPct) { audioPreloadPct = pct; lastPct = pct; paintAudioArea(); }
+    }
+    clearTimeout(stallTimeoutId);
+    const blob = new Blob(chunks, {type:'audio/mpeg'});
+    audioBlobUrl = URL.createObjectURL(blob);
+    audioPreloadState = 'ready';
+    paintAudioArea();
+  } catch(e) {
+    clearTimeout(stallTimeoutId);
+    audioPreloadState = 'error';
+    S.audio.preloadRetries = (S.audio.preloadRetries||0) + 1; save();
+    paintAudioArea();
+  }
+}
+window.addEventListener('online', function(){
+  if (audioPreloadState === 'error') preloadAudio();
+});
+
+function paintAudioArea() {
+  const el = $('audio-area');
+  if (!el) return;
+  let h = '';
+  if (audioPreloadState === 'idle' || audioPreloadState === 'loading') {
+    h += '<div class="tiny" style="margin-bottom:.5rem">Preparing audio&hellip; downloading fully so playback keeps going even if your connection drops.</div>';
+    h += '<div class="audio-bar"><div class="audio-bar-fill" style="width:' + audioPreloadPct + '%"></div></div>';
+    h += '<div class="tiny" style="margin-top:.5rem">' + audioPreloadPct + '% downloaded</div>';
+  } else if (audioPreloadState === 'error') {
+    h += '<div class="note warnbox"><strong>Could not load the audio.</strong> Check your connection — this retries automatically once you are back online, or click below.</div>';
+    h += '<button class="btn btn-ghost" id="btn-audio-retry">Retry now</button>';
+  } else if (audioPreloadState === 'ready' && !S.audio.started) {
+    h += '<audio id="rp-audio" preload="auto" src="' + esc(audioBlobUrl) + '"></audio>';
+    h += '<button class="btn btn-primary" id="btn-audio-play">&#9654; Play role play audio</button>';
+  } else if (S.audio.started) {
+    h += '<audio id="rp-audio" preload="auto" src="' + esc(audioBlobUrl) + '"></audio>';
+    h += '<div class="audio-bar"><div class="audio-bar-fill" id="audio-progress-fill" style="width:0%"></div></div>';
+    h += '<div class="tiny" style="margin-top:.5rem" id="audio-progress-text">Playing&hellip;</div>';
+    h += '<div class="note warnbox" id="audio-stall-note" style="display:none;margin-top:.75rem">Connection interrupted &mdash; playback will resume automatically.</div>';
+  }
+  el.innerHTML = h;
+  on('btn-audio-retry','click', function(){ audioPreloadState = 'idle'; preloadAudio(); });
+  on('btn-audio-play','click', onAudioPlayClick);
+  wireAudioElement();
+}
+
+function wireAudioElement() {
+  const el = $('rp-audio');
+  if (!el) return;
+  el.addEventListener('timeupdate', function(){
+    if (!el.duration) return;
+    const pct = Math.min(100, (el.currentTime/el.duration)*100);
+    const fill = $('audio-progress-fill'); if (fill) fill.style.width = pct + '%';
+    const txt = $('audio-progress-text'); if (txt) txt.textContent = mmss(el.currentTime) + ' / ' + mmss(el.duration);
+  });
+  el.addEventListener('waiting', onAudioBuffering);
+  el.addEventListener('stalled', onAudioBuffering);
+  el.addEventListener('playing', function(){ const note = $('audio-stall-note'); if (note) note.style.display = 'none'; });
+  el.addEventListener('error', onAudioError);
+  el.addEventListener('ended', onAudioEnded);
+}
+
+function onAudioPlayClick() {
+  if (S.audio.started) return;
+  S.audio.started = true; save();
+  paintAudioArea(); // switches to the "started" view; nothing has played yet, so no progress to lose
+  const el = $('rp-audio');
+  if (el) el.play().catch(function(){ toast('Could not start audio playback — check your browser sound settings', 3200); });
+  startPositionSaveTimer();
+}
+
+function onAudioBuffering() {
+  const note = $('audio-stall-note');
+  if (note && note.style.display !== 'block') { S.audio.stalls = (S.audio.stalls||0) + 1; save(); }
+  if (note) { note.style.display = 'block'; note.textContent = 'Connection interrupted — playback will resume automatically.'; }
+}
+
+function onAudioError() {
+  const el = $('rp-audio');
+  if (el) S.audio.lastPosition = el.currentTime || S.audio.lastPosition;
+  save();
+  const note = $('audio-stall-note');
+  if (note) { note.style.display = 'block'; note.textContent = 'Connection lost — trying to resume from where you left off…'; }
+  setTimeout(attemptAudioResume, 1500);
+}
+function attemptAudioResume() {
+  if (S.audio.ended) return;
+  const el = $('rp-audio');
+  if (!el) return;
+  try {
+    el.load();
+    el.currentTime = S.audio.lastPosition || 0;
+    el.play().then(function(){
+      const note = $('audio-stall-note'); if (note) note.style.display = 'none';
+    }).catch(function(){ setTimeout(attemptAudioResume, 3000); });
+  } catch(e) { setTimeout(attemptAudioResume, 3000); }
+}
+
+function onAudioEnded() {
+  stopPositionSaveTimer();
+  S.audio.ended = true;
+  if (!S.deadline) S.deadline = Date.now() + TIMING.listeningNotes*1000;
+  save();
+  render();
+}
+
+function startPositionSaveTimer() {
+  stopPositionSaveTimer();
+  audioPositionTimer = setInterval(function(){
+    const el = $('rp-audio');
+    if (el && !isNaN(el.currentTime)) { S.audio.lastPosition = el.currentTime; save(); }
+  }, 4000);
+}
+function stopPositionSaveTimer() {
+  if (audioPositionTimer) { clearInterval(audioPositionTimer); audioPositionTimer = null; }
 }
 
 /* ── COMPETENCY SECTION ──────────────────────────────────────── */
@@ -660,6 +890,12 @@ function formatDateLong(d) {
   if (!y || !m || !day) return d;
   return day + ' ' + months[m-1] + ' ' + y;
 }
+function formatCompletedTimestamp(d) {
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const pad2 = function(n){ return (n<10?'0':'')+n; };
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear()
+    + ' · ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
 function submitSubject() {
   return 'AIVA Assessment Simulation — ' + (S.name.trim() || 'Unknown') + ' — ' + formatDateLong(S.date);
 }
@@ -726,6 +962,12 @@ function viewDone() {
     +  'Copy attempts blocked: <strong>'+(S.integrity.copy||0)+'</strong> &nbsp;&middot;&nbsp; '
     +  'Screenshot key presses detected: <strong>'+(S.integrity.screenshot||0)+'</strong> &nbsp;&middot;&nbsp; '
     +  'Times the window lost focus: <strong>'+S.integrity.blur+'</strong></div>';
+  if (S.audio.stalls || S.audio.preloadRetries || S.audio.forcedIncomplete) {
+    h += '<div class="muted" style="margin-top:.5rem">Audio buffering interruptions: <strong>'+(S.audio.stalls||0)+'</strong> &nbsp;&middot;&nbsp; '
+      +  'Audio load retries: <strong>'+(S.audio.preloadRetries||0)+'</strong>'
+      +  (S.audio.forcedIncomplete ? ' &nbsp;&middot;&nbsp; <strong style="color:var(--orange2)">Audio forced complete after an unrecovered interruption — heard up to '+mmss(S.audio.lastPosition||0)+'</strong>' : '')
+      +  '</div>';
+  }
   h += '</div>';
   return h;
 }
@@ -770,14 +1012,15 @@ function revBlk(q, a) {
 /* ═══ BINDING ════════════════════════════════════════════════ */
 function bind(sec) {
   if (sec.kind === 'setup') {
-    on('f-name','input',function(e){
-      S.name = e.target.value; save();
-      const has = !!S.name.trim();
+    function refreshBeginGate() {
+      const has = detailsComplete();
       const btn = $('btn-begin'), hint = $('begin-hint');
       if (btn) btn.disabled = !has;
-      if (hint) hint.textContent = has ? 'Section timers start once you click.' : 'Enter your name above to continue.';
-      paintWatermark();
-    });
+      if (hint) hint.textContent = has ? 'Section timers start once you click.' : 'Enter your name and access code above to continue.';
+    }
+    on('f-first','input',function(e){ S.firstName = e.target.value; syncFullName(); save(); refreshBeginGate(); paintWatermark(); });
+    on('f-last','input',function(e){ S.lastName = e.target.value; syncFullName(); save(); refreshBeginGate(); paintWatermark(); });
+    on('f-code','input',function(e){ S.accessCode = e.target.value; save(); refreshBeginGate(); hideCodeError(); });
     on('f-date','input',function(e){ S.date = e.target.value; save(); });
     on('btn-begin','click', beginSheet);
     on('btn-resume-inline','click', function(){ render(); startSection(S.idx, true); });
@@ -790,6 +1033,10 @@ function bind(sec) {
         advance(false);
       });
     });
+    if (!S.audio.ended) {
+      paintAudioArea();
+      if (audioPreloadState === 'idle') preloadAudio();
+    }
     return;
   }
   if (sec.kind === 'done') {
@@ -847,8 +1094,31 @@ function bind(sec) {
 function on(id, ev, fn) { const el = $(id); if (el) el.addEventListener(ev, fn); }
 
 /* ═══ TIMER ══════════════════════════════════════════════════ */
+function detailsComplete() {
+  return !!(S.firstName.trim() && S.lastName.trim() && S.accessCode.trim());
+}
+function syncFullName() {
+  S.name = (S.firstName.trim() + ' ' + S.lastName.trim()).trim();
+}
+function showCodeError(msg) {
+  const el = $('code-err'); if (!el) return;
+  el.textContent = msg; el.style.display = 'block';
+}
+function hideCodeError() {
+  const el = $('code-err'); if (el) el.style.display = 'none';
+}
+
 function beginSheet() {
-  if (!S.name.trim()) { toast('Enter your name before you begin'); $('f-name').focus(); return; }
+  if (!detailsComplete()) { toast('Enter your name and access code before you begin'); return; }
+  const result = validateAccessCode(S.firstName, S.lastName, S.accessCode);
+  if (!result.ok) {
+    showCodeError(result.reason === 'malformed'
+      ? "That access code doesn't look right — check you've copied it exactly, including the dashes."
+      : "This access code doesn't match the name entered — check both are spelled correctly.");
+    $('f-code').focus();
+    return;
+  }
+  hideCodeError();
   S.startedAt = Date.now();
   S.idx = 1;
   startSection(1, false);
@@ -857,7 +1127,20 @@ function beginSheet() {
 function startSection(idx, resuming) {
   S.idx = idx;
   const sec = SECTIONS[idx];
-  if (sec.secs > 0) {
+  if (sec.kind === 'notes') {
+    // The 5-minute countdown starts only once the audio finishes playing
+    // (see the 'ended' handler) — not on entering this section.
+    if (S.audio.started && !S.audio.ended) {
+      // Playback was interrupted (e.g. by a refresh) and never recovered
+      // via the in-page resume logic. The audio only plays once, so treat
+      // it as finished rather than stranding the assessor with no way to
+      // ever unlock the next section — but flag it as incomplete so the
+      // administrator can see this wasn't a full, uninterrupted listen.
+      S.audio.ended = true;
+      S.audio.forcedIncomplete = true;
+      if (!S.deadline) S.deadline = Date.now() + TIMING.listeningNotes*1000;
+    }
+  } else if (sec.secs > 0) {
     if (!resuming || !S.deadline) S.deadline = Date.now() + sec.secs*1000;
   } else {
     S.deadline = null;
@@ -913,7 +1196,7 @@ function paintClock(left, total) {
 function updateTimerBar() {
   const sec = cur();
   const bar = $('timerbar');
-  if (!sec || sec.secs === 0) { bar.classList.remove('show'); return; }
+  if (!sec || sec.secs === 0 || !S.deadline) { bar.classList.remove('show'); return; }
   bar.classList.add('show');
   $('tb-sec').textContent = sec.title;
   const pos = TIMED.indexOf(sec) + 1;
@@ -927,9 +1210,14 @@ function updateTimerBar() {
 }
 
 /* ═══ ANTI-ASSIST GUARDS ═════════════════════════════════════ */
+// Paste is allowed on these three fields — they're values copied from an
+// email or roster (name, access code), not assessment content — and this
+// allowance must not affect the paste-blocked integrity count either way.
+const PASTE_ALLOWED_IDS = ['f-first', 'f-last', 'f-code'];
 if (BLOCK_PASTE) {
   document.addEventListener('paste', function(e){
     const t = e.target;
+    if (t && PASTE_ALLOWED_IDS.indexOf(t.id) !== -1) return;
     if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) {
       e.preventDefault();
       S.integrity.paste++; save();
@@ -938,6 +1226,7 @@ if (BLOCK_PASTE) {
   }, true);
   document.addEventListener('drop', function(e){
     const t = e.target;
+    if (t && PASTE_ALLOWED_IDS.indexOf(t.id) !== -1) return;
     if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) { e.preventDefault(); S.integrity.paste++; save(); }
   }, true);
 }
@@ -977,7 +1266,7 @@ window.addEventListener('beforeunload', function(e){
 /* ═══ VALIDATION ═════════════════════════════════════════════ */
 function missing() {
   const m = [];
-  if (!S.name.trim()) m.push('Assessor name');
+  if (!S.firstName.trim() || !S.lastName.trim()) m.push('Assessor name');
   COMPETENCIES.forEach(function(c, i){
     const d = S.comps[i];
     const filled = d.obs.filter(function(o){ return o.text.trim(); }).length;
@@ -998,14 +1287,15 @@ function missing() {
 }
 
 /* ═══ EXPORT ═════════════════════════════════════════════════ */
-function sheetLines() {
+function sheetLines(completedAt) {
   const L = [];
   L.push('OBSERVATION HUB');
   L.push('Chemistik Industries — Customer Role Play — Assessment Observation Exercise');
   L.push('Practice Alignment Programme | Assessment Simulation');
   L.push('');
   L.push('Assessor Name: ' + (S.name || 'Unknown'));
-  L.push('Date: ' + (S.date || 'Unknown'));
+  L.push('Access Code: ' + (S.accessCode || 'Unknown'));
+  L.push('Completed: ' + formatCompletedTimestamp(completedAt || new Date()));
   L.push('Assessee: Sunil Jain — VP, Key Accounts & Business Development, Chemistik Industries');
   L.push('Tool: Customer Role Play — Recovering a High-Value B2B Client Relationship');
   L.push('');
@@ -1064,6 +1354,11 @@ function sheetLines() {
   L.push('Copy attempts blocked: ' + (S.integrity.copy||0));
   L.push('Screenshot key presses detected: ' + (S.integrity.screenshot||0));
   L.push('Times the window lost focus: ' + S.integrity.blur);
+  L.push('Audio buffering interruptions: ' + (S.audio.stalls||0));
+  L.push('Audio load retries: ' + (S.audio.preloadRetries||0));
+  if (S.audio.forcedIncomplete) {
+    L.push('Audio forced complete after an unrecovered interruption — heard up to ' + mmss(S.audio.lastPosition||0));
+  }
   return L;
 }
 
@@ -1075,6 +1370,7 @@ function fileBase() {
 /* ── PDF (the file the admin scoring tool reads) ─────────────── */
 function downloadPdf() {
   if (!window.jspdf || !window.jspdf.jsPDF) { toast('PDF export unavailable — please reload the page and try again'); return; }
+  const completedAt = new Date(); // captured at the moment of download, not an approximation
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'pt', format:'a4'});
   const pageW = doc.internal.pageSize.getWidth();
@@ -1111,7 +1407,7 @@ function downloadPdf() {
     });
   }
 
-  sheetLines().forEach(function(t){
+  sheetLines(completedAt).forEach(function(t){
     if (t === '') { y += 8; return; }
     if (t === 'OBSERVATION HUB') { writeTitle(t); return; }
     if (/^(LISTENING NOTES|COMPETENCY \d|SUMMARY —|OVERALL OBSERVATIONS|SESSION RECORD)/.test(t)) { writeHeading(t); return; }
@@ -1137,7 +1433,30 @@ function paintWatermark() {
 }
 setInterval(paintWatermark, 60000);
 
+/* ═══ TESTING ONLY — delete this whole block, and the button in
+   the footer, before go-live. Clears the saved draft on this
+   device/browser and reloads to the first screen. ═══════════ */
+function testingReset() {
+  showConfirm('Reset this device\'s saved draft?', 'This clears the local test draft and reloads to the first screen. Only affects this browser — testing only.', function(){
+    try { localStorage.removeItem(STORE_KEY); } catch(e){}
+    location.reload();
+  });
+}
+
+/* Keep the sticky timer bar stacked directly below the sticky no-refresh
+   banner rather than overlapping it. Measured in JS (not hardcoded) since
+   the banner's text wraps to extra lines on narrow screens. */
+function positionTimerbarBelowBanner() {
+  const banner = document.querySelector('.norefresh-banner');
+  const bar = $('timerbar');
+  if (banner && bar) bar.style.top = banner.offsetHeight + 'px';
+}
+window.addEventListener('resize', positionTimerbarBelowBanner);
+window.addEventListener('load', positionTimerbarBelowBanner);
+positionTimerbarBelowBanner();
+
 /* ═══ BOOT ═══════════════════════════════════════════════════ */
+$('btn-testing-reset').addEventListener('click', testingReset); // TESTING ONLY — remove with the footer button
 $('fw-close').addEventListener('click', function(){ $('fw-modal').classList.remove('show'); });
 $('fw-modal').addEventListener('click', function(e){ if (e.target === $('fw-modal')) $('fw-modal').classList.remove('show'); });
 $('notes-close').addEventListener('click', function(){ $('notes-modal').classList.remove('show'); });

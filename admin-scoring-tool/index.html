@@ -69,6 +69,21 @@ h1 span{color:var(--blue1)}
 .narr-box{background:var(--gray4);padding:1rem 1.375rem;border-top:1px solid var(--border)}
 .narr-lbl{font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--gray3);margin-bottom:.375rem}
 .total-strip{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem 1.375rem;margin-top:.75rem;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--shadow)}
+.tabs{display:flex;gap:.5rem;margin-bottom:1.5rem;border-bottom:1px solid var(--border)}
+.tab-btn{background:none;border:none;padding:.75rem 1.25rem;font-family:var(--font);font-size:13px;font-weight:600;color:var(--gray3);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab-btn.active{color:var(--blue1);border-bottom-color:var(--blue1)}
+.field{margin-bottom:1rem}
+.field label{display:block;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gray3);margin-bottom:.4rem}
+input[type=text]{width:100%;font-family:var(--font);font-size:14px;color:var(--gray1);background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:.6rem .75rem;outline:none}
+input[type=text]:focus{border-color:var(--blue1)}
+input[type=text]:disabled,input[type=text][readonly]{background:var(--gray4);color:var(--gray2)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.logtable{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:1rem}
+.logtable th{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gray3);text-align:left;padding:.5rem .625rem;border-bottom:1px solid var(--border)}
+.logtable td{padding:.55rem .625rem;border-bottom:1px solid var(--gray4)}
+.logtable tr:last-child td{border-bottom:none}
+.logtable .mono{font-family:monospace;font-weight:600}
+.logempty{font-size:13px;color:var(--gray3);font-style:italic;padding:.75rem 0}
 footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-content:space-between;align-items:center;margin-top:2rem}
 .ftr-l{font-size:10px;font-weight:600;color:rgba(255,255,255,.45);letter-spacing:.06em;text-transform:uppercase}
 .ftr-r{font-size:10px;color:rgba(255,255,255,.3)}
@@ -87,6 +102,13 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
 
 <div class="wrap">
   <h1>Assessment <span>Scoring Engine</span></h1>
+
+  <div class="tabs no-print">
+    <button class="tab-btn active" id="tab-btn-score">Score Submissions</button>
+    <button class="tab-btn" id="tab-btn-codes">Generate Access Code</button>
+  </div>
+
+  <div id="tab-score">
 
   <div class="card no-print" style="background:var(--gold-light);border-color:var(--gold)">
     <div class="lbl">How this works</div>
@@ -170,6 +192,56 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
       <button class="btn btn-ghost" id="btn-reset">Score Another</button>
       <button class="btn btn-gold" onclick="window.print()">&#128424; Print Results</button>
     </div>
+  </div>
+
+  </div>
+
+  <!-- GENERATE ACCESS CODE -->
+  <div id="tab-codes" style="display:none">
+
+    <div class="card no-print" style="background:var(--gold-light);border-color:var(--gold)">
+      <div class="lbl">How this works</div>
+      <ol style="font-size:13px;color:var(--gray2);line-height:2;margin-left:1.125rem">
+        <li>Enter the assessor's first and last name exactly as they will type them</li>
+        <li>Click Generate to produce a unique access code for that name</li>
+        <li>Copy the code and send it to the assessor (e.g. by email)</li>
+        <li>The assessor enters their name and this code together to unlock the exercise</li>
+        <li>Export the log to Excel before you close this tab — it is not saved anywhere else</li>
+      </ol>
+    </div>
+
+    <div class="card no-print">
+      <div class="step-head"><span class="step-num">1</span>Generate Access Code</div>
+      <div class="grid2">
+        <div class="field"><label for="code-first">First Name</label><input type="text" id="code-first" placeholder="First name" autocomplete="off"></div>
+        <div class="field"><label for="code-last">Last Name</label><input type="text" id="code-last" placeholder="Last name" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>Date Generated</label><input type="text" id="code-date-display" readonly></div>
+      <div class="btn-row" style="margin-top:0">
+        <button class="btn btn-primary" id="btn-generate-code" disabled>Generate</button>
+      </div>
+      <div id="code-result" style="display:none;margin-top:1.25rem">
+        <div class="lbl">Access code</div>
+        <div class="prompt-wrap">
+          <input type="text" id="code-generated" readonly style="font-family:monospace;font-size:1.25rem;font-weight:700;background:var(--gray1);color:#fff;border:none;border-radius:var(--radius);padding:1rem;letter-spacing:.05em">
+          <button class="copy-btn" id="btn-copy-code">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card no-print">
+      <div class="step-head"><span class="step-num">2</span>Codes Generated This Session</div>
+      <p class="muted" id="log-caption" style="font-size:12px;color:var(--gray3);margin-bottom:1rem"></p>
+      <table class="logtable">
+        <thead><tr><th>Date Generated</th><th>First Name</th><th>Last Name</th><th>Access Code</th></tr></thead>
+        <tbody id="code-log-body"></tbody>
+      </table>
+      <div id="code-log-empty" class="logempty">No codes generated yet this session.</div>
+      <div class="btn-row">
+        <button class="btn btn-gold" id="btn-export-xlsx">&#11015; Export to Excel</button>
+      </div>
+    </div>
+
   </div>
 
 </div>
@@ -488,6 +560,130 @@ document.getElementById('btn-reset').addEventListener('click', function() {
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
 }
+
+// ── TABS ─────────────────────────────────────────────────────
+function showTab(name) {
+  document.getElementById('tab-score').style.display = name === 'score' ? 'block' : 'none';
+  document.getElementById('tab-codes').style.display = name === 'codes' ? 'block' : 'none';
+  document.getElementById('tab-btn-score').classList.toggle('active', name === 'score');
+  document.getElementById('tab-btn-codes').classList.toggle('active', name === 'codes');
+}
+document.getElementById('tab-btn-score').addEventListener('click', function(){ showTab('score'); });
+document.getElementById('tab-btn-codes').addEventListener('click', function(){ showTab('codes'); });
+
+// ── ACCESS CODE (shared logic — byte-identical with the participant app) ──
+// Format: XX-YYYYMMDD-CCCC (initials - generation date - checksum). This
+// must stay in sync with the participant app's copy of the same functions —
+// a code generated here has to validate there with no shared backend.
+function codeInitials(first, last) {
+  const a = (first||'').trim().charAt(0).toUpperCase();
+  const b = (last||'').trim().charAt(0).toUpperCase();
+  return (a + b) || 'XX';
+}
+function codeChecksum(first, last, dateStr) {
+  const s = (first||'').trim().toUpperCase() + '|' + (last||'').trim().toUpperCase() + '|' + dateStr;
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) { h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; }
+  let b36 = h.toString(36).toUpperCase();
+  if (b36.length < 4) b36 = ('0000' + b36).slice(-4);
+  return b36.slice(-4);
+}
+function todayYYYYMMDD() {
+  const d = new Date();
+  return '' + d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+}
+function generateAccessCode(first, last) {
+  const dateStr = todayYYYYMMDD();
+  return codeInitials(first, last) + '-' + dateStr + '-' + codeChecksum(first, last, dateStr);
+}
+function parseAccessCode(code) {
+  const m = String(code||'').trim().toUpperCase().match(/^([A-Z]{2})-(\d{8})-([A-Z0-9]{4})$/);
+  if (!m) return null;
+  return { initials: m[1], dateStr: m[2], checksum: m[3] };
+}
+function validateAccessCode(first, last, code) {
+  const parsed = parseAccessCode(code);
+  if (!parsed) return { ok:false, reason:'malformed' };
+  const mo = +parsed.dateStr.slice(4,6), da = +parsed.dateStr.slice(6,8);
+  if (mo < 1 || mo > 12 || da < 1 || da > 31) return { ok:false, reason:'malformed' };
+  if (parsed.initials !== codeInitials(first, last)) return { ok:false, reason:'mismatch' };
+  if (parsed.checksum !== codeChecksum(first, last, parsed.dateStr)) return { ok:false, reason:'mismatch' };
+  return { ok:true };
+}
+function formatDateLong(dateStr) {
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const y = parseInt(parts[0],10), m = parseInt(parts[1],10), day = parseInt(parts[2],10);
+  if (!y || !m || !day) return dateStr;
+  return day + ' ' + months[m-1] + ' ' + y;
+}
+
+// ── GENERATE ACCESS CODE ──────────────────────────────────────
+let codeLog = []; // session-only — no backend to persist to; export before closing this tab
+const todayDisplay = formatDateLong(new Date().toISOString().slice(0,10));
+document.getElementById('code-date-display').value = todayDisplay;
+
+function refreshGenerateGate() {
+  const first = document.getElementById('code-first').value.trim();
+  const last = document.getElementById('code-last').value.trim();
+  document.getElementById('btn-generate-code').disabled = !(first && last);
+}
+document.getElementById('code-first').addEventListener('input', refreshGenerateGate);
+document.getElementById('code-last').addEventListener('input', refreshGenerateGate);
+
+document.getElementById('btn-generate-code').addEventListener('click', function(){
+  const first = document.getElementById('code-first').value.trim();
+  const last = document.getElementById('code-last').value.trim();
+  if (!first || !last) return;
+  const code = generateAccessCode(first, last);
+  document.getElementById('code-generated').value = code;
+  document.getElementById('code-result').style.display = 'block';
+  codeLog.push({ dateGenerated: todayDisplay, first: first, last: last, code: code });
+  renderCodeLog();
+});
+
+document.getElementById('btn-copy-code').addEventListener('click', function() {
+  const input = document.getElementById('code-generated');
+  input.select();
+  input.setSelectionRange(0, 99999);
+  try { document.execCommand('copy'); } catch(e) { navigator.clipboard.writeText(input.value); }
+  this.textContent = 'Copied';
+  setTimeout(() => { this.textContent = 'Copy'; }, 2000);
+});
+
+function renderCodeLog() {
+  const body = document.getElementById('code-log-body');
+  const empty = document.getElementById('code-log-empty');
+  const caption = document.getElementById('log-caption');
+  body.innerHTML = codeLog.map(function(r){
+    return '<tr><td>' + esc(r.dateGenerated) + '</td><td>' + esc(r.first) + '</td><td>' + esc(r.last) + '</td><td class="mono">' + esc(r.code) + '</td></tr>';
+  }).join('');
+  empty.style.display = codeLog.length ? 'none' : 'block';
+  caption.textContent = codeLog.length
+    ? 'This log only exists in this browser tab and resets on refresh — there is no backend to save it. Export to Excel before you close this tab; that file is your durable record.'
+    : 'Generated codes will appear here, oldest first. This log resets on refresh, so export to Excel before closing this tab.';
+}
+renderCodeLog();
+
+// ── EXPORT TO EXCEL (SheetJS, lazy-loaded like pdf.js above) ──
+document.getElementById('btn-export-xlsx').addEventListener('click', function() {
+  if (!codeLog.length) { alert('No codes generated yet this session.'); return; }
+  function doExport() {
+    const rows = [['Date Generated','First Name','Last Name','Access Code']]
+      .concat(codeLog.map(function(r){ return [r.dateGenerated, r.first, r.last, r.code]; }));
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Access Codes');
+    XLSX.writeFile(wb, 'AIVA-Access-Codes-' + todayYYYYMMDD() + '.xlsx');
+  }
+  if (window.XLSX) { doExport(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+  s.onload = doExport;
+  s.onerror = function(){ alert('Could not load the Excel export library — check your connection and try again.'); };
+  document.head.appendChild(s);
+});
 </script>
 </body>
 </html>
