@@ -87,7 +87,7 @@ input[type=text]:disabled,input[type=text][readonly]{background:var(--gray4);col
 footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-content:space-between;align-items:center;margin-top:2rem}
 .ftr-l{font-size:10px;font-weight:600;color:rgba(255,255,255,.45);letter-spacing:.06em;text-transform:uppercase}
 .ftr-r{font-size:10px;color:rgba(255,255,255,.3)}
-@media print{header,footer,.no-print{display:none!important}#res-area{display:block!important}}
+@media print{header,footer,.no-print,#pdf-preview-card{display:none!important}#res-area{display:block!important}}
 </style>
 </head>
 <body>
@@ -132,6 +132,12 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
     </div>
     <div class="file-ok" id="file-ok">&#10003; &nbsp;<span id="fname"></span></div>
     <div class="err" id="upload-err"></div>
+  </div>
+
+  <div class="card" id="pdf-preview-card" style="display:none">
+    <div class="lbl">Submission PDF — Page Preview</div>
+    <div style="font-size:12px;color:var(--gray3);margin-bottom:.75rem">Scoring below is based on the extracted text only — this is a visual check, mainly for the Webcam Captures page if the associate consented to it. Click a page to open it full size.</div>
+    <div id="pdf-preview-pages" style="display:flex;gap:.75rem;overflow-x:auto;padding-bottom:.5rem"></div>
   </div>
 
   <div class="spinner" id="spinner"><div class="spin"></div><span style="font-size:13px;color:var(--gray3)">Reading document...</span></div>
@@ -397,10 +403,16 @@ document.getElementById('file-in').addEventListener('change', function(e) {
   readSheetFile(f);
 });
 
-async function extractPdfText(file) {
+// Single pdf.js parse pass that does both text extraction (same
+// Y-coordinate line-reconstruction as before — extractListeningNotes()'s
+// regex depends on that line-break structure, so this must not regress
+// to a flatter join) and full-page rendering, so the PDF isn't parsed
+// twice just to also show a page preview.
+async function extractTextAndPreviews(file) {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({data: buf}).promise;
   let full = '';
+  const pageImages = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
@@ -415,20 +427,59 @@ async function extractPdfText(file) {
       lastY = y;
     });
     full += line.trim() + '\n\n';
+
+    // Thumbnail rendering is a visual nicety on top of text extraction, which
+    // is what scoring actually depends on — if a page's canvas render stalls
+    // or fails, skip that thumbnail rather than let it block the text (and
+    // therefore the whole upload) from completing.
+    try {
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const renderPromise = page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('page render timed out')), 8000));
+      await Promise.race([renderPromise, timeout]);
+      pageImages.push({ pageNum: p, dataUrl: canvas.toDataURL('image/png') });
+    } catch (renderErr) {
+      console.warn('Page ' + p + ' thumbnail render skipped:', renderErr.message);
+    }
   }
-  return full.trim();
+  return { text: full.trim(), pageImages: pageImages };
+}
+
+function renderPdfPreviews(pageImages) {
+  const wrap = document.getElementById('pdf-preview-pages');
+  wrap.innerHTML = '';
+  pageImages.forEach(function(entry) {
+    const fig = document.createElement('div');
+    fig.style.cssText = 'flex-shrink:0;text-align:center;cursor:pointer';
+    fig.title = 'Open page ' + entry.pageNum + ' full size';
+    fig.innerHTML = '<img src="' + entry.dataUrl + '" style="width:150px;border:1px solid var(--border);border-radius:4px;display:block" alt="Page ' + entry.pageNum + '">' +
+      '<div style="font-size:10px;color:var(--gray3);margin-top:.25rem">Page ' + entry.pageNum + '</div>';
+    fig.addEventListener('click', function() {
+      const w = window.open();
+      if (w) w.document.write('<title>Page ' + entry.pageNum + '</title><img src="' + entry.dataUrl + '" style="max-width:100%">');
+    });
+    wrap.appendChild(fig);
+  });
+  document.getElementById('pdf-preview-card').style.display = pageImages.length ? 'block' : 'none';
 }
 
 async function readSheetFile(file) {
   document.getElementById('spinner').classList.add('show');
   document.getElementById('upload-err').classList.remove('show');
   document.getElementById('scoring-steps').style.display = 'none';
+  document.getElementById('pdf-preview-card').style.display = 'none';
+  document.getElementById('pdf-preview-pages').innerHTML = '';
   try {
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     let text;
     if (ext === 'pdf') {
       if (!window.pdfjsLib) throw new Error('PDF reader failed to load — check your connection and reload.');
-      text = await extractPdfText(file);
+      const result = await extractTextAndPreviews(file);
+      text = result.text;
+      renderPdfPreviews(result.pageImages);
     } else if (ext === 'docx') {
       const buf = await file.arrayBuffer();
       const result = await mammoth.extractRawText({arrayBuffer: buf});
@@ -545,6 +596,8 @@ document.getElementById('btn-reset').addEventListener('click', function() {
   document.getElementById('file-in').value = '';
   document.getElementById('file-ok').classList.remove('show');
   document.getElementById('scoring-steps').style.display = 'none';
+  document.getElementById('pdf-preview-card').style.display = 'none';
+  document.getElementById('pdf-preview-pages').innerHTML = '';
   document.getElementById('step2').style.display = 'none';
   document.getElementById('step3').style.display = 'none';
   document.getElementById('ok1').classList.remove('show');
