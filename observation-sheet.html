@@ -64,6 +64,9 @@ h1 span{color:var(--blue1)}
 .step-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--blue1);color:#fff;font-size:11px;font-weight:700;flex-shrink:0}
 .muted{font-size:13px;color:var(--gray2)}
 .tiny{font-size:11px;color:var(--gray3)}
+.ctx-list{font-size:13px;color:var(--gray2);line-height:1.6;margin:0 0 .5rem;padding-left:1.25rem}
+.ctx-list li{margin-bottom:.4rem}
+.ctx-list li:last-child{margin-bottom:0}
 
 /* ── FORM CONTROLS ──────────────────────────────────── */
 input[type=text],input[type=date],textarea,select{width:100%;font-family:var(--font);font-size:14px;color:var(--gray1);background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:.6rem .75rem;outline:none;transition:border-color .15s}
@@ -101,6 +104,9 @@ input:disabled,textarea:disabled,select:disabled{background:var(--gray4);color:v
 .obs-n{position:absolute;left:-1.5rem;top:.6rem;font-size:10px;font-weight:700;color:var(--gray3)}
 .obs-cell{position:relative}
 .obs-row textarea{min-height:78px}
+.bullet-row{display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.5rem}
+.bullet-mark{color:var(--gold);font-size:18px;line-height:1;margin-top:.7rem;flex-shrink:0}
+.bullet-row textarea{flex:1;min-height:56px}
 
 /* ── ELEMENTS PANEL ─────────────────────────────────── */
 .elems{background:var(--gray4);border-radius:var(--radius);padding:.875rem 1rem;margin-bottom:1.25rem}
@@ -209,6 +215,7 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
     </div>
   </div>
   <div class="tb-links" id="tb-links">
+    <button class="tb-linkbtn" id="tb-btn-context">Context</button>
     <button class="tb-linkbtn" id="tb-btn-fw">Framework</button>
     <button class="tb-linkbtn" id="tb-btn-notes">My Notes</button>
   </div>
@@ -221,6 +228,17 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
   <div class="ftr-l">AIVA Practice Alignment Programme</div>
   <div class="ftr-r">Right Management India</div>
 </footer>
+
+<!-- ══ CONTEXT MODAL ═══════════════════════════════════ -->
+<div class="modal" id="context-modal">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <h2>Role Play Context</h2>
+      <button class="x" id="context-close">&times;</button>
+    </div>
+    <div id="context-body"></div>
+  </div>
+</div>
 
 <!-- ══ FRAMEWORK MODAL ════════════════════════════════ -->
 <div class="modal" id="fw-modal">
@@ -266,18 +284,25 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
 /* ═══════════════════════════════════════════════════════════════
    CONFIGURATION — section time limits (in seconds)
    Adjust these values to change how long each section stays open.
-   Total below = 24 minutes of timed writing (5 of it starting only
+   Total below = 30 minutes of timed writing (5 of it starting only
    once the role play audio finishes playing).
    ═══════════════════════════════════════════════════════════════ */
 const TIMING = {
   listeningNotes: 300, // 5:00 — starts once the role play audio ends, not on section entry
-  competency: 210,   // 3:30 per competency  x4 = 14:00
+  competency: 300,   // 5:00 per competency  x4 = 20:00
   summary:    120,   // 2:00
   overall:    180    // 3:00
 };
+const CONTEXT_READING_MIN = 5; // untimed, self-paced — added only to the estimated total shown on screen 1
 const AUDIO_SRC = 'audio/role-play.mp3';
 const HARD_LOCK = true;   // true = section locks and auto-advances when time expires
 const BLOCK_PASTE = true; // true = pasting into the sheet is blocked
+
+// TESTING ONLY — set to false (or delete this flag and the code gated on
+// it, in viewNotes()/bind() below) before go-live. Adds a button to skip
+// past the role play audio without listening, purely to speed up manual
+// testing of the competency sections.
+const TESTING_MODE = true;
 
 // Randomized, not fixed — a predictable exact-5-minute cadence would let
 // someone time the camera. Each cycle picks a fresh random delay in this
@@ -345,6 +370,14 @@ const BANDS = [
   ['3 – 3.5', 'Proficient / Emerging Strength', 'Demonstrates consistently at expected level. Dependable and aligned to role expectations.'],
   ['4 – 5', 'Strength / Hi-Potential', 'Depth and consistency across varied situations. Influences outcomes beyond immediate scope.']
 ];
+function classificationForScore(score) {
+  const v = parseFloat(score);
+  if (!v) return '';
+  if (v <= 1.5) return CLASSES[0];
+  if (v <= 2.5) return CLASSES[1];
+  if (v <= 3.5) return CLASSES[2];
+  return CLASSES[3];
+}
 const EVIDENCE = [
   ['Positive', '+ Positive'],
   ['Developmental', '− Developmental'],
@@ -357,6 +390,7 @@ const STORE_KEY = 'aiva-assessment-sim-obshub-v1';
 const SECTIONS = [
   {id:'setup', title:'Before You Begin', kind:'setup', secs:0},
   {id:'consent', title:'Webcam Capture', kind:'consent', secs:0},
+  {id:'context', title:'Role Play Context', kind:'context', secs:0},
   {id:'notes', title:'Listening Notes', kind:'notes', secs:TIMING.listeningNotes},
   {id:'c1', title:'Competency 1 — Result Orientation', kind:'comp', ci:0, secs:TIMING.competency},
   {id:'c2', title:'Competency 2 — Commercial Acumen', kind:'comp', ci:1, secs:TIMING.competency},
@@ -379,7 +413,7 @@ function blankState() {
     comps: COMPETENCIES.map(function(){
       return {
         obs: Array.from({length:OBS_ROWS}, function(){ return {text:'', element:'', type:''}; }),
-        inference:'', score:'', justification:'', classification:''
+        strengths: [''], development: [''], score:'', classification:''
       };
     }),
     overall: {rating:'', ratingClass:'', strongest:'', gap:'', readiness:''},
@@ -499,6 +533,7 @@ function render() {
   wrap.innerHTML = ({
     setup:   viewSetup,
     consent: viewConsent,
+    context: viewContext,
     notes:   viewNotes,
     comp:    viewComp,
     summary: viewSummary,
@@ -548,7 +583,7 @@ function viewSetup() {
   h += '<li>Once the audio ends you have <strong>5 minutes</strong> to finish your notes before this section closes automatically. You can continue sooner if you are ready.</li>';
   h += '<li>Your notes stay available from the <strong>My Notes</strong> button throughout the timed sections that follow.</li>';
   h += '<li><strong>Record what you observed</strong> &mdash; write what was actually SAID or DONE. Stay close to verbatim. Do not interpret in the observation box.</li>';
-  h += '<li><strong>Separate observation from inference</strong> &mdash; the observation box and the inference box serve different purposes. Do not mix them.</li>';
+  h += '<li><strong>Separate observation from conclusion</strong> &mdash; the observation boxes and the Areas of Strength / Areas of Development boxes serve different purposes. Do not mix them.</li>';
   h += '<li><strong>Use the competency framework</strong> &mdash; map each observation to the correct competency and element. Do not create your own labels.</li>';
   h += '<li><strong>Record both positive and developmental evidence</strong> &mdash; if you only record strengths your observations are incomplete.</li>';
   h += '<li>This screen is watermarked with your name and the time throughout &mdash; copying, pasting and right-click are disabled, and screenshots are traceable to your session.</li>';
@@ -560,10 +595,11 @@ function viewSetup() {
   h += '<div class="card">';
   h += '<div class="step-head"><span class="step-num">3</span>Section timings</div>';
   h += '<table class="sumtable"><thead><tr><th>Section</th><th style="text-align:right">Time</th></tr></thead><tbody>';
+  h += '<tr><td class="comp" style="width:auto;font-weight:500">Reading role play context <span class="tiny">(self-paced, not counted down)</span></td><td style="text-align:right;font-weight:700;font-variant-numeric:tabular-nums">~'+CONTEXT_READING_MIN+' min</td></tr>';
   TIMED.forEach(function(s){
     h += '<tr><td class="comp" style="width:auto;font-weight:500">'+esc(s.title)+'</td><td style="text-align:right;font-weight:700;font-variant-numeric:tabular-nums">'+mmss(s.secs)+'</td></tr>';
   });
-  h += '<tr><td class="comp" style="width:auto">Total writing time</td><td style="text-align:right;font-weight:700">'+mins+' minutes</td></tr>';
+  h += '<tr><td class="comp" style="width:auto">Total time (approx.)</td><td style="text-align:right;font-weight:700">'+(mins+CONTEXT_READING_MIN)+' minutes</td></tr>';
   h += '</tbody></table>';
   h += '</div>';
 
@@ -624,12 +660,107 @@ function viewConsent() {
   return h;
 }
 
+/* ── ROLE PLAY CONTEXT ────────────────────────────────────────────
+   contextHTML() renders just the reference cards (no heading, no
+   continue button) so the same content can be reused as: the
+   standalone pre-audio screen, the Context modal opened from the
+   sticky timer bar on the competency/summary/overall screens, and
+   the inline panel on the Listening Notes screen. ────────────── */
+function contextHTML() {
+  let h = '';
+  h += '<div class="card">';
+  h += '<div class="lbl">Chemistik: Recovering a High-Value B2B Client Relationship</div>';
+
+  h += '<p class="muted" style="margin-bottom:.375rem"><strong>Company &amp; Context Background</strong></p>';
+  h += '<p class="muted" style="margin-bottom:1rem">Chemistik Industries is India&rsquo;s leading manufacturer of adhesives, sealants, and construction chemicals. The company has been aggressively expanding its premium construction chemicals portfolio through technology-led joint ventures, including the Chemistik&ndash;Ceramix JV for high-performance tile adhesives and grouts.</p>';
+
+  h += '<p class="muted" style="margin-bottom:.375rem"><strong>Client Profile &mdash; Aether Constructions Pvt Ltd</strong></p>';
+  h += '<p class="muted" style="margin-bottom:.5rem">Aether Constructions is a reputed, 18-year-old real estate developer headquartered in Chennai with strong presence across South India (Tamil Nadu, Karnataka, Telangana, Andhra Pradesh) and selective projects in Maharashtra.</p>';
+  h += '<ul class="ctx-list">';
+  h += '<li><strong>Scale:</strong> Annual turnover ~&#8377;2,800 crore. Currently executing 24 active projects with a total developable area of 18.5 million sq.ft.</li>';
+  h += '<li><strong>Focus:</strong> Premium and luxury residential townships (70%), high-end commercial spaces (20%), and select institutional/infrastructure projects (10%).</li>';
+  h += '<li><strong>Annual Construction Chemicals Spend:</strong> &#8377;85&ndash;95 crore. Tile fixing systems, grouts, waterproofing compounds, and adhesives account for nearly 40% of this spend.</li>';
+  h += '<li><strong>Procurement Style:</strong> Centralized procurement with strong technical evaluation. They maintain a panel of 4&ndash;5 approved vendors but prefer long-term strategic partners who can offer technical support, consistent quality, and competitive commercial terms.</li>';
+  h += '<li><strong>Key Pain Points:</strong> Rising input costs, tight project margins (currently 14&ndash;16%), delay in project completion penalties, and increasing demand for faster execution and sustainability-compliant products.</li>';
+  h += '</ul>';
+
+  h += '<p class="muted" style="margin-bottom:.375rem;margin-top:1rem"><strong>Detailed History of the Relationship with Chemistik</strong></p>';
+  h += '<p class="muted" style="margin-bottom:.75rem">Aether started with Chemistik&rsquo;s standard adhesives and sealants in 2019. By 2022 relationship was transactional but grew steadily due to reliable quality and timely delivery. In 2022, Aether shifted a significant portion of their premium tile fixing requirements to the Roff-Ceramix range. They were impressed with the superior bonding strength, faster setting time, and aesthetic finish of Ceramix epoxy and polymer-modified grouts. By 2024, Chemistik supplied &#8377;11.2 crore (highest ever). Chemistik enjoyed ~65% share in Aether&rsquo;s premium tile adhesives &amp; grouts wallet. Aether used Chemistik products successfully in 7 flagship luxury projects, receiving positive feedback from architects and end-customers on durability and finish.</p>';
+  h += '<p class="muted" style="margin-bottom:0">From the early months of 2025, the relationship started weakening due to three successive price increases (total ~19% over 18 months) driven by sharp rise in imported raw materials (re-dispersible polymers and epoxy resins). Delivery reliability dropped during the post-monsoon construction surge, with multiple instances of 2&ndash;3 week delays. Technical support at sites became inconsistent; site engineers complained of slow response from Chemistik&rsquo;s technical team compared to competitors. As a result, Chemistik&rsquo;s share dropped from 65% to ~28% in the premium category. Annualized offtake is now only &#8377;4.8 crore.</p>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<p class="muted" style="margin-bottom:.375rem"><strong>Current Situation in Hand</strong></p>';
+  h += '<p class="muted" style="margin-bottom:.5rem">Aether is in the final stage of vendor selection for two major upcoming projects:</p>';
+  h += '<ul class="ctx-list">';
+  h += '<li><strong>Project 1: &ldquo;Aether Lakeview&rdquo;</strong> &mdash; Luxury waterfront residential township in Chennai (Phase 2) &mdash; Potential chemical value: &#8377;14 crore over 24 months.</li>';
+  h += '<li><strong>Project 2: &ldquo;Aether Horizon&rdquo;</strong> &mdash; Premium high-rise commercial complex in Bengaluru &mdash; Potential chemical value: &#8377;14 crore over 18 months. Total Opportunity: &#8377;28 crore over the next 2 years.</li>';
+  h += '</ul>';
+  h += '<p class="muted" style="margin:.75rem 0 .5rem">Aether has shortlisted Apex BuildChem (an aggressive South Indian competitor) as the lead supplier. Apex is offering:</p>';
+  h += '<ul class="ctx-list">';
+  h += '<li>14&ndash;18% lower prices than Chemistik&rsquo;s current quoted rates.</li>';
+  h += '<li>Dedicated site technical engineers for each project.</li>';
+  h += '<li>75-day credit terms.</li>';
+  h += '<li>Faster delivery commitment (within 5 days of order).</li>';
+  h += '</ul>';
+  h += '<p class="muted" style="margin-top:.75rem;margin-bottom:0">The Senior Vice President &mdash; Procurement &amp; Technical Services has agreed to give Chemistik one final 1:1 meeting before they sign the contract with Apex BuildChem. This meeting is scheduled at Aether&rsquo;s Chennai headquarters.</p>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<p class="muted" style="margin-bottom:.375rem"><strong>Aether&rsquo;s Current Stance &amp; Expectations</strong></p>';
+  h += '<ul class="ctx-list">';
+  h += '<li>They still acknowledge that Ceramix products offer technically superior performance (better adhesion in wet areas, lower efflorescence, longer life).</li>';
+  h += '<li>However, they are no longer willing to pay a &ldquo;premium&rdquo; without commensurate value in service, pricing stability, and support.</li>';
+  h += '</ul>';
+  h += '<p class="muted" style="margin:.75rem 0 .5rem">Specific demands likely to be raised:</p>';
+  h += '<ul class="ctx-list">';
+  h += '<li>Price rollback or protection for the next 18&ndash;24 months.</li>';
+  h += '<li>Volume-based rebate structure.</li>';
+  h += '<li>Dedicated on-site technical team (at least 2 engineers per major project).</li>';
+  h += '<li>Improved credit terms (from current 45 to 60&ndash;75 days).</li>';
+  h += '<li>Guarantee delivery timelines with penalty clauses.</li>';
+  h += '<li>Flexibility to develop &ldquo;value-optimized&rdquo; variants without compromising core performance.</li>';
+  h += '</ul>';
+  h += '<p class="muted" style="margin-top:.75rem;margin-bottom:0">There is also ongoing internal pressure on Aether &mdash; their management has mandated a minimum 8&ndash;10% reduction in construction material costs for new projects due to softening real estate demand and higher borrowing costs.</p>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<p class="muted" style="margin-bottom:.375rem"><strong>Role Holder Profiles</strong></p>';
+  h += '<p class="muted" style="margin-bottom:.75rem"><strong>Candidate Role: Vice President &mdash; Key Accounts &amp; Business Development, Chemistik Industries.</strong> Owns the P&amp;L responsibility for strategic corporate accounts in the construction chemicals vertical. Their mandate is to protect and grow high-value client relationships while maintaining healthy contribution margins. Losing Aether completely would mean a significant revenue hit and damage to Chemistik&rsquo;s reputation in the premium developer segment.</p>';
+  h += '<p class="muted" style="margin-bottom:0"><strong>Customer Role: Procurement &amp; Technical Head, Aether Constructions Pvt Ltd.</strong> An experienced procurement professional with strong technical knowledge, responsible for optimizing chemical construction costs while ensuring quality and timely execution for Aether&rsquo;s projects. Highly frustrated with recent price hikes and service lapses from Chemistik, and under pressure from management to reduce project costs by 8&ndash;10%. Respects Ceramix technology but believes &ldquo;good enough&rdquo; performance at lower cost is now acceptable.</p>';
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<p class="muted" style="margin-bottom:.375rem"><strong>Role Play Setup</strong></p>';
+  h += '<p class="muted" style="margin-bottom:.75rem">Sunil Jain (Chemistik VP &mdash; Key Accounts) is meeting Sandeep Sharma, Procurement &amp; Technical Head of Aether Constructions, at their corporate office in Chennai. This is a make-or-break 1:1 discussion.</p>';
+  h += '<p class="muted" style="margin-bottom:0">Aether is about to award the next 18-month contract to a competitor. Sunil&rsquo;s goal is to retain a minimum 60&ndash;70% wallet share of the &#8377;28 crore opportunity with healthy margins, rebuild trust, and lay the foundation for a stronger long-term partnership.</p>';
+  h += '</div>';
+  return h;
+}
+
+function viewContext() {
+  let h = '';
+  h += '<h1>Role Play <span>Context</span></h1>';
+  h += '<p class="sub">Read this before you listen to the audio &mdash; it is the same background both parties in the role play were given, and will help you judge what you hear.</p>';
+  h += contextHTML();
+  h += '<div class="btn-row no-print">';
+  h += '<button class="btn btn-primary" id="btn-context-continue">Continue to Listening Notes &rarr;</button>';
+  h += '<span class="tiny">You can\'t return to this screen once you continue. It stays available from the Context button once you do.</span>';
+  h += '</div>';
+  return h;
+}
+
 /* ── LISTENING NOTES ─────────────────────────────────────────── */
 function viewNotes() {
   const a = S.audio;
   let h = '';
   h += '<h1>Listening <span>Notes</span></h1>';
-  h += '<p class="sub">Play the role play audio, then use this space to capture rough notes.</p>';
+  h += '<p class="sub">Play the role play audio, then use this space to capture rough notes. Use the <strong>Context</strong> button above to bring back the role play background at any time &mdash; it stays open alongside the audio and your notes, not as a popup that blocks them.</p>';
+
+  h += '<div class="card" id="notes-context-panel" style="display:none">';
+  h += '<div class="lbl" style="display:flex;align-items:center;justify-content:space-between">Role play context<button class="linkbtn no-print" id="btn-notes-context-hide" style="text-decoration:none;font-size:11px">Hide &times;</button></div>';
+  h += contextHTML();
+  h += '</div>';
 
   h += '<div class="card">';
   h += '<div class="lbl">Role play audio</div>';
@@ -641,6 +772,11 @@ function viewNotes() {
       +  '&mdash; shown in the timer at the top of the page. You can continue sooner if you are ready.</div>';
   }
   h += '<div id="audio-area"></div>';
+  if (TESTING_MODE && !a.ended) {
+    h += '<div class="note warnbox no-print" style="margin-top:1rem;border-style:dashed">'
+      +  '<strong>Testing only &mdash; remove before go-live.</strong> '
+      +  '<button class="linkbtn" id="btn-skip-audio-testing" style="color:inherit">Skip audio and go straight to Competency 1 &rarr;</button></div>';
+  }
   h += '</div>';
 
   h += '<div class="card">';
@@ -897,9 +1033,15 @@ function viewComp(sec) {
   h += '</div>';
 
   h += '<div class="card">';
-  h += '<div class="lbl">Your inference</div>';
-  h += '<p class="muted" style="margin-bottom:.625rem">What does this tell you about this person\'s capability on this competency? Write your conclusion separately from the observations above.</p>';
-  h += '<textarea id="c-inference" style="min-height:110px" placeholder="Your conclusion — not a restatement of the behaviour">'+esc(d.inference)+'</textarea>';
+  h += '<div class="lbl">Areas of strength</div>';
+  h += '<p class="muted" style="margin-bottom:.625rem">Drawing on the observations above, where did this person show capability on this competency? One bullet per point.</p>';
+  h += bulletListHTML('c-strengths', sec.ci, d.strengths, 'e.g. Owned the failures upfront without hedging');
+  h += '</div>';
+
+  h += '<div class="card">';
+  h += '<div class="lbl">Areas of development</div>';
+  h += '<p class="muted" style="margin-bottom:.625rem">Drawing on the observations above, where did this person fall short on this competency? One bullet per point.</p>';
+  h += bulletListHTML('c-development', sec.ci, d.development, 'e.g. Pivoted to a value pitch before probing the cost mandate');
   h += '</div>';
 
   h += '<div class="card">';
@@ -919,8 +1061,6 @@ function viewComp(sec) {
   h += '<div class="field" style="margin-top:1.25rem;margin-bottom:0"><label for="c-class">Classification &mdash; choose the band that matches your score</label>';
   h += selectHTML('c-class', CLASSES, d.classification, 'Select classification');
   h += '</div>';
-  h += '<div class="field" style="margin-top:1rem"><label for="c-just">Why &mdash; one to two sentences justifying your score and classification, referencing specific behaviour from your observations</label>';
-  h += '<textarea id="c-just" style="min-height:70px">'+esc(d.justification)+'</textarea></div>';
   h += '</div>';
 
   h += sectionFooter();
@@ -935,6 +1075,20 @@ function selectHTML(id, opts, val, placeholder) {
     h += '<option value="'+esc(v)+'"'+(val===v?' selected':'')+'>'+esc(l)+'</option>';
   });
   return h + '</select>';
+}
+
+// Renders a bullet-list input: one small textarea per item plus an
+// "+ Add bullet" link, mirroring the "+ Add another observation" pattern
+// so Areas of Strength / Areas of Development read as discrete points
+// rather than one blended paragraph.
+function bulletListHTML(idPrefix, ci, items, placeholder) {
+  let h = '';
+  items.forEach(function(v, i){
+    h += '<div class="bullet-row"><span class="bullet-mark">&bull;</span>'
+      +  '<textarea id="'+idPrefix+'-'+ci+'-'+i+'" placeholder="'+(i===0?esc(placeholder):'…')+'">'+esc(v)+'</textarea></div>';
+  });
+  h += '<button class="linkbtn no-print" id="btn-add-'+idPrefix+'-'+ci+'">+ Add bullet</button>';
+  return h;
 }
 
 /* ── SUMMARY SECTION ─────────────────────────────────────────── */
@@ -1116,10 +1270,10 @@ function reviewHTML() {
       h += '<div class="review-a'+(o.text?'':' empty')+'">'+esc(o.text||'(blank)')+'</div>';
       h += '<div class="tiny">'+esc(o.element||'no element recorded')+'<span class="chip '+cls+'">'+esc(o.type||'no type')+'</span></div></div>';
     });
-    h += revBlk('Inference', d.inference);
+    h += revBullets('Areas of strength', d.strengths);
+    h += revBullets('Areas of development', d.development);
     h += '<div class="review-blk"><div class="review-q">Score &amp; classification</div><div class="review-a'+(d.score?'':' empty')+'">'
       +  esc(d.score||'(blank)')+' — '+esc(d.classification||'(no classification)')+'</div></div>';
-    h += revBlk('Why this score and classification', d.justification);
     h += '</div>';
   });
   h += '<div style="font-size:13px;font-weight:700;color:var(--blue1);margin-bottom:.625rem">Overall</div>';
@@ -1132,6 +1286,13 @@ function reviewHTML() {
 }
 function revBlk(q, a) {
   return '<div class="review-blk"><div class="review-q">'+esc(q)+'</div><div class="review-a'+(a?'':' empty')+'">'+esc(a||'(blank)')+'</div></div>';
+}
+function revBullets(q, items) {
+  const filled = items.filter(function(v){ return v.trim(); });
+  const body = filled.length
+    ? '<ul style="margin:0;padding-left:1.1rem">' + filled.map(function(v){ return '<li>'+esc(v.trim())+'</li>'; }).join('') + '</ul>'
+    : '(blank)';
+  return '<div class="review-blk"><div class="review-q">'+esc(q)+'</div><div class="review-a'+(filled.length?'':' empty')+'">'+body+'</div></div>';
 }
 
 /* ═══ BINDING ════════════════════════════════════════════════ */
@@ -1179,13 +1340,25 @@ function bind(sec) {
     });
     return;
   }
+  if (sec.kind === 'context') {
+    on('btn-context-continue','click', function(){ advance(false); });
+    return;
+  }
   if (sec.kind === 'notes') {
     on('notes-main-ta','input', function(e){ S.notes = e.target.value; debouncedSave(); });
+    on('btn-notes-context-hide','click', function(){ $('notes-context-panel').style.display = 'none'; });
     on('btn-notes-continue','click', function(){
       showConfirm('Continue to the timed sections?', 'Your notes stay available from the My Notes button. Once you continue, section timers begin and cannot be paused.', function(){
         advance(false);
       });
     });
+    if (TESTING_MODE) {
+      // TESTING ONLY — see the TESTING_MODE flag near the top of this file.
+      on('btn-skip-audio-testing','click', function(){
+        S.audio.forcedIncomplete = true; // flags this as not a genuine listen in the exported record
+        onAudioEnded();
+      });
+    }
     if (!S.audio.ended) {
       paintAudioArea();
       if (audioPreloadState === 'idle') preloadAudio();
@@ -1209,11 +1382,28 @@ function bind(sec) {
       on('o-'+ci+'-'+i+'-element','change', function(e){ o.element = e.target.value; save(); });
       on('o-'+ci+'-'+i+'-type','change', function(e){ o.type = e.target.value; save(); });
     });
-    on('c-inference','input', function(e){ d.inference = e.target.value; debouncedSave(); });
-    on('c-just','input', function(e){ d.justification = e.target.value; debouncedSave(); });
+    d.strengths.forEach(function(v, i){
+      on('c-strengths-'+ci+'-'+i,'input', function(e){ d.strengths[i] = e.target.value; debouncedSave(); });
+    });
+    d.development.forEach(function(v, i){
+      on('c-development-'+ci+'-'+i,'input', function(e){ d.development[i] = e.target.value; debouncedSave(); });
+    });
+    on('btn-add-c-strengths-'+ci,'click', function(){
+      if (isLocked()) return;
+      d.strengths.push(''); save(); render();
+    });
+    on('btn-add-c-development-'+ci,'click', function(){
+      if (isLocked()) return;
+      d.development.push(''); save(); render();
+    });
     on('c-class','change', function(e){ d.classification = e.target.value; save(); });
     document.querySelectorAll('input[name="score-'+ci+'"]').forEach(function(r){
-      r.addEventListener('change', function(e){ d.score = e.target.value; save(); });
+      r.addEventListener('change', function(e){
+        d.score = e.target.value;
+        d.classification = classificationForScore(d.score);
+        $('c-class').value = d.classification;
+        save();
+      });
     });
     on('btn-addrow','click', function(){
       if (isLocked()) return;
@@ -1255,19 +1445,34 @@ function hideCodeError() {
 }
 
 function beginSheet() {
-  if (!detailsComplete()) { toast('Enter your name and access code before you begin'); return; }
-  const result = validateAccessCode(S.firstName, S.lastName, S.accessCode);
-  if (!result.ok) {
-    showCodeError(result.reason === 'malformed'
-      ? "That access code doesn't look right — check you've copied it exactly, including the dashes."
-      : "This access code doesn't match the name entered — check both are spelled correctly.");
-    $('f-code').focus();
-    return;
+  // Re-sync from the live inputs rather than trusting S.* alone — some
+  // autofill/password-manager flows set an input's value without firing
+  // an 'input' event, which would otherwise leave S.firstName/lastName/
+  // accessCode stale even though the field visibly shows the right text,
+  // and the click would silently do nothing with no error shown.
+  const firstEl = $('f-first'), lastEl = $('f-last'), codeEl = $('f-code');
+  if (firstEl) S.firstName = firstEl.value;
+  if (lastEl) S.lastName = lastEl.value;
+  if (codeEl) S.accessCode = codeEl.value;
+  syncFullName();
+
+  try {
+    if (!detailsComplete()) { toast('Enter your name and access code before you begin'); return; }
+    const result = validateAccessCode(S.firstName, S.lastName, S.accessCode);
+    if (!result.ok) {
+      showCodeError(result.reason === 'malformed'
+        ? "That access code doesn't look right — check you've copied it exactly, including the dashes."
+        : "This access code doesn't match the name entered — check both are spelled correctly.");
+      if (codeEl) codeEl.focus();
+      return;
+    }
+    hideCodeError();
+    S.startedAt = Date.now();
+    S.idx = 1;
+    startSection(1, false);
+  } catch (e) {
+    showCodeError('Something went wrong starting the exercise — please reload this page and try again. If it keeps happening, contact your AIVA administrator.');
   }
-  hideCodeError();
-  S.startedAt = Date.now();
-  S.idx = 1;
-  startSection(1, false);
 }
 
 function startSection(idx, resuming) {
@@ -1344,7 +1549,9 @@ function updateTimerBar() {
   const bar = $('timerbar');
   if (!sec || sec.secs === 0 || !S.deadline) { bar.classList.remove('show'); return; }
   bar.classList.add('show');
-  $('tb-links').classList.toggle('show', sec.kind === 'comp' || sec.kind === 'summary' || sec.kind === 'overall');
+  $('tb-links').classList.toggle('show', sec.kind === 'comp' || sec.kind === 'summary' || sec.kind === 'overall' || sec.kind === 'notes');
+  $('tb-btn-fw').style.display = sec.kind === 'notes' ? 'none' : '';
+  $('tb-btn-notes').style.display = sec.kind === 'notes' ? 'none' : '';
   $('tb-sec').textContent = sec.title;
   const pos = TIMED.indexOf(sec) + 1;
   $('tb-step').textContent = 'Section ' + pos + ' of ' + TIMED.length;
@@ -1418,10 +1625,10 @@ function missing() {
     const d = S.comps[i];
     const filled = d.obs.filter(function(o){ return o.text.trim(); }).length;
     if (filled < 2) m.push(c.name + ': observations');
-    if (!d.inference.trim()) m.push(c.name + ': inference');
+    if (!d.strengths.some(function(v){ return v.trim(); })) m.push(c.name + ': areas of strength');
+    if (!d.development.some(function(v){ return v.trim(); })) m.push(c.name + ': areas of development');
     if (!d.score) m.push(c.name + ': score');
     if (!d.classification) m.push(c.name + ': classification');
-    if (!d.justification.trim()) m.push(c.name + ': why');
   });
   if (!S.overall.rating) m.push('Overall rating');
   if (!S.overall.ratingClass) m.push('Overall classification');
@@ -1432,6 +1639,11 @@ function missing() {
 }
 
 /* ═══ EXPORT ═════════════════════════════════════════════════ */
+function pushBullets(L, items) {
+  const filled = items.filter(function(v){ return v.trim(); });
+  if (!filled.length) { L.push('  (blank)'); return; }
+  filled.forEach(function(v){ L.push('  - ' + v.trim()); });
+}
 function sheetLines(completedAt) {
   const L = [];
   L.push('OBSERVATION HUB');
@@ -1465,10 +1677,12 @@ function sheetLines(completedAt) {
     });
     if (!any) L.push('  (no observations recorded)');
     L.push('');
-    L.push('Inference: ' + (d.inference.trim() || '(blank)'));
+    L.push('Areas of strength:');
+    pushBullets(L, d.strengths);
+    L.push('Areas of development:');
+    pushBullets(L, d.development);
     L.push('Score: ' + (d.score || '(blank)'));
     L.push('Classification: ' + (d.classification || '(blank)'));
-    L.push('Why: ' + (d.justification.trim() || '(blank)'));
   });
 
   L.push('');
@@ -1620,13 +1834,30 @@ positionTimerbarBelowBanner();
 /* ═══ BOOT ═══════════════════════════════════════════════════ */
 $('tb-btn-fw').addEventListener('click', function(){ $('fw-body').innerHTML = frameworkHTML(); $('fw-modal').classList.add('show'); });
 $('tb-btn-notes').addEventListener('click', function(){ $('notes-ta').value = S.notes; $('notes-modal').classList.add('show'); });
+// On the Listening Notes screen itself, Context toggles an inline panel
+// instead of opening a modal — a modal would sit on top of the page and
+// block typing in the notes textarea underneath, which defeats the point
+// of keeping the context available while listening and writing notes.
+$('tb-btn-context').addEventListener('click', function(){
+  if (cur().kind === 'notes') {
+    const panel = $('notes-context-panel');
+    const opening = panel.style.display === 'none';
+    panel.style.display = opening ? 'block' : 'none';
+    if (opening) panel.scrollIntoView({behavior:'smooth', block:'start'});
+    return;
+  }
+  $('context-body').innerHTML = contextHTML();
+  $('context-modal').classList.add('show');
+});
+$('context-close').addEventListener('click', function(){ $('context-modal').classList.remove('show'); });
+$('context-modal').addEventListener('click', function(e){ if (e.target === $('context-modal')) $('context-modal').classList.remove('show'); });
 $('fw-close').addEventListener('click', function(){ $('fw-modal').classList.remove('show'); });
 $('fw-modal').addEventListener('click', function(e){ if (e.target === $('fw-modal')) $('fw-modal').classList.remove('show'); });
 $('notes-close').addEventListener('click', function(){ $('notes-modal').classList.remove('show'); });
 $('notes-modal').addEventListener('click', function(e){ if (e.target === $('notes-modal')) $('notes-modal').classList.remove('show'); });
 $('notes-ta').addEventListener('input', function(e){ S.notes = e.target.value; debouncedSave(); });
 document.addEventListener('keydown', function(e){
-  if (e.key === 'Escape') { $('fw-modal').classList.remove('show'); $('notes-modal').classList.remove('show'); }
+  if (e.key === 'Escape') { $('fw-modal').classList.remove('show'); $('notes-modal').classList.remove('show'); $('context-modal').classList.remove('show'); }
 });
 
 restored = load();
