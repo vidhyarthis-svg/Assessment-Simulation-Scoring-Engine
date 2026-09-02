@@ -44,6 +44,10 @@ header{background:var(--gray1);padding:.75rem 1.5rem;display:flex;align-items:ce
 .dot{width:8px;height:8px;border-radius:50%;background:var(--border)}
 .dot.done{background:var(--blue1)}
 .dot.now{background:var(--gold);box-shadow:0 0 0 3px var(--gold-light)}
+.tb-links{max-width:900px;margin:0 auto;padding:0 1.5rem .625rem;display:none;gap:.5rem}
+.tb-links.show{display:flex}
+.tb-linkbtn{background:none;border:1px solid var(--border);color:var(--gray2);font-family:var(--font);font-size:11px;font-weight:600;padding:.3rem .7rem;border-radius:var(--radius);cursor:pointer;white-space:nowrap;transition:all .15s}
+.tb-linkbtn:hover{border-color:var(--blue1);color:var(--blue1)}
 .tb-prog{height:3px;background:var(--gray4)}
 .tb-prog-fill{height:100%;background:var(--blue1);transition:width .4s linear}
 .tb-prog-fill.warn{background:var(--orange2)}
@@ -181,7 +185,10 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
     <div class="hdr-title">AIVA Practice Alignment Programme</div>
     <div class="hdr-sub">Assessment Simulation &middot; Observation Hub</div>
   </div>
-  <span class="badge" id="hdr-badge">Assessor</span>
+  <div style="display:flex;align-items:center;gap:.5rem">
+    <span class="badge no-print" id="webcam-indicator" style="display:none;background:#2E7D32">&#128247; Capture armed</span>
+    <span class="badge" id="hdr-badge">Assessor</span>
+  </div>
 </header>
 
 <div class="norefresh-banner no-print">Do not refresh, close, or navigate away from this tab. Nothing is saved automatically &mdash; doing so will lose all of your responses.</div>
@@ -201,6 +208,10 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
       </div>
     </div>
   </div>
+  <div class="tb-links" id="tb-links">
+    <button class="tb-linkbtn" id="tb-btn-fw">Framework</button>
+    <button class="tb-linkbtn" id="tb-btn-notes">My Notes</button>
+  </div>
   <div class="tb-prog"><div class="tb-prog-fill" id="tb-fill" style="width:100%"></div></div>
 </div>
 
@@ -208,11 +219,7 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
 
 <footer>
   <div class="ftr-l">AIVA Practice Alignment Programme</div>
-  <div style="display:flex;align-items:center;gap:1rem">
-    <!-- TESTING ONLY — delete this button (and its handler in the BOOT section) before go-live -->
-    <button id="btn-testing-reset" class="no-print" style="background:none;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.55);font-family:var(--font);font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:.3rem .625rem;border-radius:var(--radius);cursor:pointer">&#8635; Reset (testing only)</button>
-    <div class="ftr-r">Right Management India</div>
-  </div>
+  <div class="ftr-r">Right Management India</div>
 </footer>
 
 <!-- ══ FRAMEWORK MODAL ════════════════════════════════ -->
@@ -271,6 +278,16 @@ const TIMING = {
 const AUDIO_SRC = 'audio/role-play.mp3';
 const HARD_LOCK = true;   // true = section locks and auto-advances when time expires
 const BLOCK_PASTE = true; // true = pasting into the sheet is blocked
+
+// Randomized, not fixed — a predictable exact-5-minute cadence would let
+// someone time the camera. Each cycle picks a fresh random delay in this
+// range (averaging ~5 minutes) rather than reusing one fixed interval.
+const WEBCAM_INTERVAL_MIN_MS = 3 * 60 * 1000; // 3 minutes
+const WEBCAM_INTERVAL_MAX_MS = 7 * 60 * 1000; // 7 minutes
+function randomWebcamInterval() {
+  return WEBCAM_INTERVAL_MIN_MS + Math.random() * (WEBCAM_INTERVAL_MAX_MS - WEBCAM_INTERVAL_MIN_MS);
+}
+const WEBCAM_WIDTH = 320, WEBCAM_HEIGHT = 240; // 4:3, small enough to keep frames lightweight
 
 const COMPETENCIES = [
   {
@@ -339,6 +356,7 @@ const STORE_KEY = 'aiva-assessment-sim-obshub-v1';
 /* ── SECTION MAP ─────────────────────────────────────────────── */
 const SECTIONS = [
   {id:'setup', title:'Before You Begin', kind:'setup', secs:0},
+  {id:'consent', title:'Webcam Capture', kind:'consent', secs:0},
   {id:'notes', title:'Listening Notes', kind:'notes', secs:TIMING.listeningNotes},
   {id:'c1', title:'Competency 1 — Result Orientation', kind:'comp', ci:0, secs:TIMING.competency},
   {id:'c2', title:'Competency 2 — Commercial Acumen', kind:'comp', ci:1, secs:TIMING.competency},
@@ -356,11 +374,12 @@ function blankState() {
     name: '', firstName: '', lastName: '', accessCode: '', date: new Date().toISOString().slice(0,10),
     idx: 0, deadline: null, startedAt: null,
     notes: '',
+    webcamConsent: false,
     audio: {started:false, ended:false, stalls:0, preloadRetries:0, forcedIncomplete:false, lastPosition:0},
     comps: COMPETENCIES.map(function(){
       return {
         obs: Array.from({length:OBS_ROWS}, function(){ return {text:'', element:'', type:''}; }),
-        inference:'', score:'', justification:'', classification:'', why:'', rationale:''
+        inference:'', score:'', justification:'', classification:''
       };
     }),
     overall: {rating:'', ratingClass:'', strongest:'', gap:'', readiness:''},
@@ -378,7 +397,27 @@ let audioPreloadState = 'idle'; // 'idle' | 'loading' | 'ready' | 'error'
 let audioPreloadPct = 0;
 let audioPositionTimer = null;
 
+/* Webcam capture state — session-only, not persisted. Frame data URLs can
+   be sizeable; keeping them out of localStorage avoids bloating/quota-ing
+   it, at the cost of losing already-captured frames on a refresh. Capture
+   re-arms automatically on resume if consent was previously given —
+   see the BOOT section. */
+let webcamFrames = []; // {dataUrl, timestamp}
+let webcamArmed = false; // true once armWebcamCapture() has started the capture chain this page load
+let webcamCaptureTimer = null; // current pending setTimeout id
+let webcamIndicatorOn = false; // only ever set true after a genuine first successful frame
+
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch(e){} }
+// Debounced write for free-text fields — the in-memory S object is always
+// updated synchronously on every keystroke (so nothing is ever stale), only
+// the localStorage write itself is coalesced to avoid a disk write per
+// keystroke. Discrete actions (selections, locks, screen changes) call
+// save() directly and remain instant.
+let saveDebounceTimer = null;
+function debouncedSave() {
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(save, 400);
+}
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
@@ -459,6 +498,7 @@ function render() {
   const wrap = $('wrap');
   wrap.innerHTML = ({
     setup:   viewSetup,
+    consent: viewConsent,
     notes:   viewNotes,
     comp:    viewComp,
     summary: viewSummary,
@@ -503,7 +543,8 @@ function viewSetup() {
     +  'When the countdown reaches zero the section locks automatically and you move to the next one &mdash; '
     +  'you cannot return to a section once it closes. Write continuously and do not stop to look things up.</div>';
   h += '<ol class="muted" style="padding-left:1.25rem">';
-  h += '<li>Click Begin, then play the role play audio on the Listening Notes screen &mdash; it can only be played <strong>once</strong>, so listen with full attention.</li>';
+  h += '<li>Click Begin &mdash; you will be asked to allow <strong>webcam access</strong> next. This is required to proceed; make sure a working camera is available before you start.</li>';
+  h += '<li>Then play the role play audio on the Listening Notes screen &mdash; it can only be played <strong>once</strong>, so listen with full attention.</li>';
   h += '<li>Once the audio ends you have <strong>5 minutes</strong> to finish your notes before this section closes automatically. You can continue sooner if you are ready.</li>';
   h += '<li>Your notes stay available from the <strong>My Notes</strong> button throughout the timed sections that follow.</li>';
   h += '<li><strong>Record what you observed</strong> &mdash; write what was actually SAID or DONE. Stay close to verbatim. Do not interpret in the observation box.</li>';
@@ -553,6 +594,32 @@ function frameworkHTML() {
   BANDS.forEach(function(b){
     h += '<div class="band"><b>'+b[0]+'</b><b style="color:var(--blue1);font-size:10px">'+esc(b[1])+'</b>'+esc(b[2])+'</div>';
   });
+  h += '</div>';
+  return h;
+}
+
+/* ── WEBCAM CONSENT ──────────────────────────────────────────── */
+function viewConsent() {
+  let h = '';
+  h += '<h1>Webcam <span>Capture</span></h1>';
+  h += '<p class="sub">Required before you continue.</p>';
+
+  h += '<div class="card">';
+  h += '<div class="lbl">What this is</div>';
+  h += '<p class="muted" style="margin-bottom:.75rem">This device\'s webcam will capture a single still image now, and then again at random intervals for the rest of the exercise. The camera opens only for the moment it takes to grab each still &mdash; it is not recorded continuously and there is no live video feed at any point.</p>';
+  h += '<p class="muted" style="margin-bottom:.75rem">Captured stills are embedded directly into the same submission PDF you download at the end, alongside your responses, so your administrator can see them as part of your submission. They are not uploaded anywhere else or sent to any other system.</p>';
+  h += '<div class="note warnbox" style="margin-bottom:1rem"><strong>Camera access is required.</strong> You must consent and have a working camera to continue with this exercise. If you do not have access to a working camera, contact your AIVA administrator before beginning.</div>';
+  h += '<div class="check-card">';
+  h += '<input type="checkbox" id="webcam-consent-check">';
+  h += '<label for="webcam-consent-check">I consent to periodic webcam stills being captured on this device and included in my submission.</label>';
+  h += '</div>';
+  h += '</div>';
+
+  h += '<div id="webcam-consent-status" style="display:none"></div>';
+
+  h += '<div class="btn-row no-print">';
+  h += '<button class="btn btn-primary" id="btn-consent-continue" disabled>Continue &rarr;</button>';
+  h += '<span class="tiny" id="consent-hint">Check the box above to continue.</span>';
   h += '</div>';
   return h;
 }
@@ -739,6 +806,68 @@ function stopPositionSaveTimer() {
   if (audioPositionTimer) { clearInterval(audioPositionTimer); audioPositionTimer = null; }
 }
 
+/* ── WEBCAM CAPTURE ───────────────────────────────────────────────
+   Camera access is mandatory — the consent screen blocks progress
+   until a frame is genuinely captured, not just on a checked box.
+   Each capture still opens the camera only for the instant it takes
+   to grab one frame, then closes the stream immediately — periodic
+   stills throughout the exercise, not a continuously-held live feed.
+   Timing is a self-rescheduling setTimeout chain with a fresh random
+   delay each cycle (not setInterval on a fixed period) — a predictable
+   exact cadence would let someone time the camera and pose only then.
+   Once past the consent screen, a later failed cycle (camera unplugged,
+   permission revoked, busy) is logged but does not interrupt the
+   exercise — only the initial verification blocks. The header
+   indicator only lights up after a genuine first successful frame —
+   never optimistically before the request resolves. ────────────── */
+function armWebcamCapture(skipImmediate) {
+  if (webcamArmed) return; // already armed this page load
+  webcamArmed = true;
+  if (skipImmediate) {
+    scheduleNextWebcamCapture();
+  } else {
+    captureWebcamFrame().then(scheduleNextWebcamCapture);
+  }
+}
+
+function scheduleNextWebcamCapture() {
+  webcamCaptureTimer = setTimeout(function(){
+    captureWebcamFrame().then(scheduleNextWebcamCapture);
+  }, randomWebcamInterval());
+}
+
+async function captureWebcamFrame() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: WEBCAM_WIDTH, height: WEBCAM_HEIGHT } });
+    const video = document.createElement('video');
+    video.muted = true; video.playsInline = true;
+    video.srcObject = stream;
+    await video.play();
+    if (video.readyState < 2) {
+      await new Promise(function(resolve){ video.addEventListener('loadeddata', resolve, {once:true}); });
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = WEBCAM_WIDTH; canvas.height = WEBCAM_HEIGHT;
+    canvas.getContext('2d').drawImage(video, 0, 0, WEBCAM_WIDTH, WEBCAM_HEIGHT);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+    webcamFrames.push({ dataUrl: dataUrl, timestamp: Date.now() });
+    if (!webcamIndicatorOn) { webcamIndicatorOn = true; updateWebcamIndicator(); }
+    return true;
+  } catch (e) {
+    // Camera unavailable, denied, or busy.
+    return false;
+  } finally {
+    if (stream) stream.getTracks().forEach(function(t){ t.stop(); });
+  }
+}
+
+function updateWebcamIndicator() {
+  const el = $('webcam-indicator');
+  if (el) el.style.display = webcamIndicatorOn ? 'inline-flex' : 'none';
+}
+
 /* ── COMPETENCY SECTION ──────────────────────────────────────── */
 function viewComp(sec) {
   const c = COMPETENCIES[sec.ci];
@@ -787,13 +916,11 @@ function viewComp(sec) {
     h += '<div class="band"><b>'+b[0]+'</b><b style="color:var(--blue1);font-size:10px">'+esc(b[1])+'</b></div>';
   });
   h += '</div>';
-  h += '<div class="field" style="margin-top:1.25rem"><label for="c-just">One sentence justifying your score &mdash; reference specific behaviour from your observations</label>';
-  h += '<textarea id="c-just" style="min-height:70px">'+esc(d.justification)+'</textarea></div>';
-  h += '<div class="field" style="margin-bottom:0"><label for="c-class">Classification &mdash; choose the band that matches your score</label>';
+  h += '<div class="field" style="margin-top:1.25rem;margin-bottom:0"><label for="c-class">Classification &mdash; choose the band that matches your score</label>';
   h += selectHTML('c-class', CLASSES, d.classification, 'Select classification');
   h += '</div>';
-  h += '<div class="field" style="margin-top:1rem;margin-bottom:0"><label for="c-why">Why &mdash; in one to two sentences, reference specific behaviour from your observations</label>';
-  h += '<textarea id="c-why" style="min-height:70px">'+esc(d.why)+'</textarea></div>';
+  h += '<div class="field" style="margin-top:1rem"><label for="c-just">Why &mdash; one to two sentences justifying your score and classification, referencing specific behaviour from your observations</label>';
+  h += '<textarea id="c-just" style="min-height:70px">'+esc(d.justification)+'</textarea></div>';
   h += '</div>';
 
   h += sectionFooter();
@@ -814,16 +941,15 @@ function selectHTML(id, opts, val, placeholder) {
 function viewSummary() {
   let h = '';
   h += '<h1>Summary <span>Scores &amp; Classifications</span></h1>';
-  h += '<p class="sub">Scores and classifications carry forward from the four competency sections. Add a one-line rationale for each, then set your overall rating.</p>';
+  h += '<p class="sub">Scores and classifications carry forward from the four competency sections. Review them, then set your overall rating.</p>';
   h += '<div class="card">';
-  h += '<table class="sumtable"><thead><tr><th>Competency</th><th style="text-align:center">Score</th><th>Classification</th><th>One-line rationale</th></tr></thead><tbody>';
+  h += '<table class="sumtable"><thead><tr><th>Competency</th><th style="text-align:center">Score</th><th>Classification</th></tr></thead><tbody>';
   COMPETENCIES.forEach(function(c, i){
     const d = S.comps[i];
     h += '<tr>';
     h += '<td class="comp">'+esc(c.name)+'</td>';
     h += '<td class="sc">'+(d.score ? esc(d.score) : '<span class="pending">—</span>')+'</td>';
     h += '<td class="cl">'+(d.classification ? esc(d.classification) : '<span class="pending">not recorded</span>')+'</td>';
-    h += '<td><textarea id="s-rat-'+i+'" style="min-height:56px" placeholder="One line">'+esc(d.rationale)+'</textarea></td>';
     h += '</tr>';
   });
   h += '</tbody></table>';
@@ -872,8 +998,6 @@ function sectionFooter() {
   const isLast = S.idx === SECTIONS.length - 2;
   let h = '<div class="btn-row no-print">';
   h += '<button class="btn btn-primary" id="btn-next">'+(isLast ? 'Finish and submit →' : 'Complete section →')+'</button>';
-  h += '<button class="btn btn-ghost" id="btn-fw">Framework</button>';
-  h += '<button class="btn btn-ghost" id="btn-notes-open">My Notes</button>';
   h += '<span class="tiny">Once you leave this section you cannot return to it.</span>';
   h += '</div>';
   return h;
@@ -968,6 +1092,9 @@ function viewDone() {
       +  (S.audio.forcedIncomplete ? ' &nbsp;&middot;&nbsp; <strong style="color:var(--orange2)">Audio forced complete after an unrecovered interruption — heard up to '+mmss(S.audio.lastPosition||0)+'</strong>' : '')
       +  '</div>';
   }
+  h += '<div class="muted" style="margin-top:.5rem">Webcam capture: <strong>'
+    +  (S.webcamConsent ? ('Consented — '+webcamFrames.length+' frame(s) captured this session') : 'Declined')
+    +  '</strong></div>';
   h += '</div>';
   return h;
 }
@@ -992,9 +1119,7 @@ function reviewHTML() {
     h += revBlk('Inference', d.inference);
     h += '<div class="review-blk"><div class="review-q">Score &amp; classification</div><div class="review-a'+(d.score?'':' empty')+'">'
       +  esc(d.score||'(blank)')+' — '+esc(d.classification||'(no classification)')+'</div></div>';
-    h += revBlk('Score justification', d.justification);
-    h += revBlk('Why this classification', d.why);
-    h += revBlk('Summary rationale', d.rationale);
+    h += revBlk('Why this score and classification', d.justification);
     h += '</div>';
   });
   h += '<div style="font-size:13px;font-weight:700;color:var(--blue1);margin-bottom:.625rem">Overall</div>';
@@ -1018,16 +1143,44 @@ function bind(sec) {
       if (btn) btn.disabled = !has;
       if (hint) hint.textContent = has ? 'Section timers start once you click.' : 'Enter your name and access code above to continue.';
     }
-    on('f-first','input',function(e){ S.firstName = e.target.value; syncFullName(); save(); refreshBeginGate(); paintWatermark(); });
-    on('f-last','input',function(e){ S.lastName = e.target.value; syncFullName(); save(); refreshBeginGate(); paintWatermark(); });
-    on('f-code','input',function(e){ S.accessCode = e.target.value; save(); refreshBeginGate(); hideCodeError(); });
-    on('f-date','input',function(e){ S.date = e.target.value; save(); });
+    on('f-first','input',function(e){ S.firstName = e.target.value; syncFullName(); debouncedSave(); refreshBeginGate(); paintWatermark(); });
+    on('f-last','input',function(e){ S.lastName = e.target.value; syncFullName(); debouncedSave(); refreshBeginGate(); paintWatermark(); });
+    on('f-code','input',function(e){ S.accessCode = e.target.value; debouncedSave(); refreshBeginGate(); hideCodeError(); });
+    on('f-date','input',function(e){ S.date = e.target.value; debouncedSave(); });
     on('btn-begin','click', beginSheet);
     on('btn-resume-inline','click', function(){ render(); startSection(S.idx, true); });
     return;
   }
+  if (sec.kind === 'consent') {
+    on('webcam-consent-check','change', function(e){
+      $('btn-consent-continue').disabled = !e.target.checked;
+      $('consent-hint').textContent = e.target.checked ? 'Click Continue to verify camera access.' : 'Check the box above to continue.';
+    });
+    on('btn-consent-continue','click', async function(){
+      if (!$('webcam-consent-check').checked) return;
+      const btn = $('btn-consent-continue');
+      const check = $('webcam-consent-check');
+      const status = $('webcam-consent-status');
+      btn.disabled = true; check.disabled = true;
+      status.style.display = 'block';
+      status.className = 'note';
+      status.textContent = 'Checking camera access…';
+      const ok = await captureWebcamFrame();
+      if (ok) {
+        S.webcamConsent = true;
+        save();
+        armWebcamCapture(true); // skip the immediate capture — we just took it
+        advance(false);
+      } else {
+        btn.disabled = false; check.disabled = false;
+        status.className = 'note warnbox';
+        status.innerHTML = "<strong>Camera access failed.</strong> Check your browser's camera permissions (and that no other app is using the camera), then click Continue to try again.";
+      }
+    });
+    return;
+  }
   if (sec.kind === 'notes') {
-    on('notes-main-ta','input', function(e){ S.notes = e.target.value; save(); });
+    on('notes-main-ta','input', function(e){ S.notes = e.target.value; debouncedSave(); });
     on('btn-notes-continue','click', function(){
       showConfirm('Continue to the timed sections?', 'Your notes stay available from the My Notes button. Once you continue, section timers begin and cannot be paused.', function(){
         advance(false);
@@ -1049,19 +1202,15 @@ function bind(sec) {
   on('btn-next','click', function(){
     showConfirm('Complete this section?', 'You will not be able to return to it.', function(){ advance(false); });
   });
-  on('btn-fw','click', function(){ $('fw-body').innerHTML = frameworkHTML(); $('fw-modal').classList.add('show'); });
-  on('btn-notes-open','click', function(){ $('notes-ta').value = S.notes; $('notes-modal').classList.add('show'); });
-
   if (sec.kind === 'comp') {
     const ci = sec.ci, d = S.comps[ci];
     d.obs.forEach(function(o, i){
-      on('o-'+ci+'-'+i+'-text','input', function(e){ o.text = e.target.value; save(); });
+      on('o-'+ci+'-'+i+'-text','input', function(e){ o.text = e.target.value; debouncedSave(); });
       on('o-'+ci+'-'+i+'-element','change', function(e){ o.element = e.target.value; save(); });
       on('o-'+ci+'-'+i+'-type','change', function(e){ o.type = e.target.value; save(); });
     });
-    on('c-inference','input', function(e){ d.inference = e.target.value; save(); });
-    on('c-just','input', function(e){ d.justification = e.target.value; save(); });
-    on('c-why','input', function(e){ d.why = e.target.value; save(); });
+    on('c-inference','input', function(e){ d.inference = e.target.value; debouncedSave(); });
+    on('c-just','input', function(e){ d.justification = e.target.value; debouncedSave(); });
     on('c-class','change', function(e){ d.classification = e.target.value; save(); });
     document.querySelectorAll('input[name="score-'+ci+'"]').forEach(function(r){
       r.addEventListener('change', function(e){ d.score = e.target.value; save(); });
@@ -1074,9 +1223,6 @@ function bind(sec) {
   }
 
   if (sec.kind === 'summary') {
-    S.comps.forEach(function(d, i){
-      on('s-rat-'+i,'input', function(e){ d.rationale = e.target.value; save(); });
-    });
     on('ov-class','change', function(e){ S.overall.ratingClass = e.target.value; save(); });
     document.querySelectorAll('input[name="overall-score"]').forEach(function(r){
       r.addEventListener('change', function(e){ S.overall.rating = e.target.value; save(); });
@@ -1084,9 +1230,9 @@ function bind(sec) {
   }
 
   if (sec.kind === 'overall') {
-    on('ov-strong','input', function(e){ S.overall.strongest = e.target.value; save(); });
-    on('ov-gap','input', function(e){ S.overall.gap = e.target.value; save(); });
-    on('ov-ready','input', function(e){ S.overall.readiness = e.target.value; save(); });
+    on('ov-strong','input', function(e){ S.overall.strongest = e.target.value; debouncedSave(); });
+    on('ov-gap','input', function(e){ S.overall.gap = e.target.value; debouncedSave(); });
+    on('ov-ready','input', function(e){ S.overall.readiness = e.target.value; debouncedSave(); });
   }
 
   if (isLocked()) lockInputs();
@@ -1198,6 +1344,7 @@ function updateTimerBar() {
   const bar = $('timerbar');
   if (!sec || sec.secs === 0 || !S.deadline) { bar.classList.remove('show'); return; }
   bar.classList.add('show');
+  $('tb-links').classList.toggle('show', sec.kind === 'comp' || sec.kind === 'summary' || sec.kind === 'overall');
   $('tb-sec').textContent = sec.title;
   const pos = TIMED.indexOf(sec) + 1;
   $('tb-step').textContent = 'Section ' + pos + ' of ' + TIMED.length;
@@ -1273,10 +1420,8 @@ function missing() {
     if (filled < 2) m.push(c.name + ': observations');
     if (!d.inference.trim()) m.push(c.name + ': inference');
     if (!d.score) m.push(c.name + ': score');
-    if (!d.justification.trim()) m.push(c.name + ': justification');
     if (!d.classification) m.push(c.name + ': classification');
-    if (!d.why.trim()) m.push(c.name + ': why');
-    if (!d.rationale.trim()) m.push(c.name + ': summary rationale');
+    if (!d.justification.trim()) m.push(c.name + ': why');
   });
   if (!S.overall.rating) m.push('Overall rating');
   if (!S.overall.ratingClass) m.push('Overall classification');
@@ -1322,9 +1467,8 @@ function sheetLines(completedAt) {
     L.push('');
     L.push('Inference: ' + (d.inference.trim() || '(blank)'));
     L.push('Score: ' + (d.score || '(blank)'));
-    L.push('Score justification: ' + (d.justification.trim() || '(blank)'));
     L.push('Classification: ' + (d.classification || '(blank)'));
-    L.push('Why: ' + (d.why.trim() || '(blank)'));
+    L.push('Why: ' + (d.justification.trim() || '(blank)'));
   });
 
   L.push('');
@@ -1332,8 +1476,7 @@ function sheetLines(completedAt) {
   L.push('SUMMARY — SCORES AND CLASSIFICATIONS ACROSS ALL COMPETENCIES');
   COMPETENCIES.forEach(function(c, i){
     const d = S.comps[i];
-    L.push(c.name + ' | Score: ' + (d.score || '(blank)') + ' | Classification: ' + (d.classification || '(blank)')
-      + ' | Rationale: ' + (d.rationale.trim() || '(blank)'));
+    L.push(c.name + ' | Score: ' + (d.score || '(blank)') + ' | Classification: ' + (d.classification || '(blank)'));
   });
   L.push('Overall Rating | Score: ' + (S.overall.rating || '(blank)') + ' | Classification: ' + (S.overall.ratingClass || '(blank)'));
 
@@ -1345,6 +1488,17 @@ function sheetLines(completedAt) {
   L.push('Clearest gap or missed opportunity: ' + (S.overall.gap.trim() || '(blank)'));
   L.push('');
   L.push('Overall readiness assessment: ' + (S.overall.readiness.trim() || '(blank)'));
+
+  if (S.webcamConsent) {
+    L.push('');
+    L.push('');
+    L.push('WEBCAM CAPTURES');
+    if (webcamFrames.length === 0) {
+      L.push('Webcam consent was given, but no frames were successfully captured during this session.');
+    } else {
+      L.push('WEBCAM_IMAGES_MARKER');
+    }
+  }
 
   L.push('');
   L.push('');
@@ -1359,6 +1513,7 @@ function sheetLines(completedAt) {
   if (S.audio.forcedIncomplete) {
     L.push('Audio forced complete after an unrecovered interruption — heard up to ' + mmss(S.audio.lastPosition||0));
   }
+  L.push('Webcam capture: ' + (S.webcamConsent ? ('consented — ' + webcamFrames.length + ' frame(s) captured this session') : 'declined'));
   return L;
 }
 
@@ -1406,11 +1561,28 @@ function downloadPdf() {
       y += 14;
     });
   }
+  function drawWebcamGrid() {
+    const cols = 3, gutter = 10;
+    const imgW = (maxW - (cols-1)*gutter) / cols;
+    const imgH = imgW * (WEBCAM_HEIGHT / WEBCAM_WIDTH);
+    let col = 0;
+    webcamFrames.forEach(function(f){
+      if (col === 0) ensureRoom(imgH + 16);
+      const x = marginX + col*(imgW+gutter);
+      try { doc.addImage(f.dataUrl, 'JPEG', x, y, imgW, imgH); } catch(e){}
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(120,122,128);
+      doc.text(formatCompletedTimestamp(new Date(f.timestamp)), x, y + imgH + 9);
+      col++;
+      if (col === cols) { col = 0; y += imgH + 18; }
+    });
+    if (col !== 0) y += imgH + 18;
+  }
 
   sheetLines(completedAt).forEach(function(t){
     if (t === '') { y += 8; return; }
     if (t === 'OBSERVATION HUB') { writeTitle(t); return; }
-    if (/^(LISTENING NOTES|COMPETENCY \d|SUMMARY —|OVERALL OBSERVATIONS|SESSION RECORD)/.test(t)) { writeHeading(t); return; }
+    if (/^(LISTENING NOTES|COMPETENCY \d|SUMMARY —|OVERALL OBSERVATIONS|SESSION RECORD|WEBCAM CAPTURES)/.test(t)) { writeHeading(t); return; }
+    if (t === 'WEBCAM_IMAGES_MARKER') { drawWebcamGrid(); return; }
     writeBody(t);
   });
 
@@ -1433,16 +1605,6 @@ function paintWatermark() {
 }
 setInterval(paintWatermark, 60000);
 
-/* ═══ TESTING ONLY — delete this whole block, and the button in
-   the footer, before go-live. Clears the saved draft on this
-   device/browser and reloads to the first screen. ═══════════ */
-function testingReset() {
-  showConfirm('Reset this device\'s saved draft?', 'This clears the local test draft and reloads to the first screen. Only affects this browser — testing only.', function(){
-    try { localStorage.removeItem(STORE_KEY); } catch(e){}
-    location.reload();
-  });
-}
-
 /* Keep the sticky timer bar stacked directly below the sticky no-refresh
    banner rather than overlapping it. Measured in JS (not hardcoded) since
    the banner's text wraps to extra lines on narrow screens. */
@@ -1456,12 +1618,13 @@ window.addEventListener('load', positionTimerbarBelowBanner);
 positionTimerbarBelowBanner();
 
 /* ═══ BOOT ═══════════════════════════════════════════════════ */
-$('btn-testing-reset').addEventListener('click', testingReset); // TESTING ONLY — remove with the footer button
+$('tb-btn-fw').addEventListener('click', function(){ $('fw-body').innerHTML = frameworkHTML(); $('fw-modal').classList.add('show'); });
+$('tb-btn-notes').addEventListener('click', function(){ $('notes-ta').value = S.notes; $('notes-modal').classList.add('show'); });
 $('fw-close').addEventListener('click', function(){ $('fw-modal').classList.remove('show'); });
 $('fw-modal').addEventListener('click', function(e){ if (e.target === $('fw-modal')) $('fw-modal').classList.remove('show'); });
 $('notes-close').addEventListener('click', function(){ $('notes-modal').classList.remove('show'); });
 $('notes-modal').addEventListener('click', function(e){ if (e.target === $('notes-modal')) $('notes-modal').classList.remove('show'); });
-$('notes-ta').addEventListener('input', function(e){ S.notes = e.target.value; save(); });
+$('notes-ta').addEventListener('input', function(e){ S.notes = e.target.value; debouncedSave(); });
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') { $('fw-modal').classList.remove('show'); $('notes-modal').classList.remove('show'); }
 });
@@ -1478,6 +1641,7 @@ if (restored && S.idx > 0 && S.idx < SECTIONS.length - 1) {
   render();
 }
 paintWatermark();
+if (S.webcamConsent) armWebcamCapture(); // re-arm on resume; webcamConsent persists, webcamFrames does not
 </script>
 </body>
 </html>
