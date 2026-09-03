@@ -158,6 +158,17 @@ input:disabled,textarea:disabled,select:disabled{background:var(--gray4);color:v
 .fw-comp{border:1px solid var(--border);border-radius:var(--radius);padding:.875rem 1rem;margin-bottom:.75rem}
 .fw-comp h3{font-size:13px;font-weight:700;color:var(--blue1);margin-bottom:.5rem}
 
+/* ── SIDE PANEL (Context / Framework / My Notes) ─────── */
+.side-panel{position:fixed;top:0;right:0;bottom:0;width:400px;max-width:92vw;background:var(--surface);border-left:1px solid var(--border);box-shadow:-6px 0 24px rgba(0,0,0,.14);z-index:120;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s ease}
+.side-panel.show{display:flex;transform:translateX(0)}
+.side-panel-hd{padding:1.125rem 1.375rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.side-panel-hd h2{font-size:1.0625rem;font-weight:700}
+.side-panel-body{padding:1.25rem 1.375rem;overflow-y:auto;flex:1}
+body{transition:margin-right .25s ease}
+@media (min-width:761px){
+  body.side-panel-open{margin-right:400px}
+}
+
 /* ── SUBMISSION SCREEN ───────────────────────────────── */
 .subbox{background:var(--gray4);border-radius:var(--radius-lg);padding:1.125rem 1.25rem;margin-bottom:1rem}
 .subbox .field:last-child{margin-bottom:0}
@@ -229,38 +240,17 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
   <div class="ftr-r">Right Management India</div>
 </footer>
 
-<!-- ══ CONTEXT MODAL ═══════════════════════════════════ -->
-<div class="modal" id="context-modal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <h2>Role Play Context</h2>
-      <button class="x" id="context-close">&times;</button>
-    </div>
-    <div id="context-body"></div>
+<!-- ══ REFERENCE SIDE PANEL ═════════════════════════════
+     Shared by Context / Framework / My Notes. Docked to the right on
+     wide screens (with the main content shifted left to make room, so
+     nothing is covered) rather than a modal — the whole point is that
+     it can stay open while you type in the fields underneath. ══════ -->
+<div class="side-panel no-print" id="side-panel">
+  <div class="side-panel-hd">
+    <h2 id="side-panel-title"></h2>
+    <button class="x" id="side-panel-close">&times;</button>
   </div>
-</div>
-
-<!-- ══ FRAMEWORK MODAL ════════════════════════════════ -->
-<div class="modal" id="fw-modal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <h2>Competency Framework</h2>
-      <button class="x" id="fw-close">&times;</button>
-    </div>
-    <div id="fw-body"></div>
-  </div>
-</div>
-
-<!-- ══ NOTES MODAL ═════════════════════════════════════ -->
-<div class="modal" id="notes-modal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <h2>Listening Notes</h2>
-      <button class="x" id="notes-close">&times;</button>
-    </div>
-    <p class="muted" style="margin-bottom:.75rem">Your rough notes from listening to the audio. Keep this open for reference while you complete each section below — copying text is disabled, so retype anything you need into the fields.</p>
-    <textarea id="notes-ta" style="min-height:280px"></textarea>
-  </div>
+  <div class="side-panel-body" id="side-panel-body"></div>
 </div>
 
 <!-- ══ CONFIRM MODAL ══════════════════════════════════════ -->
@@ -756,11 +746,6 @@ function viewNotes() {
   let h = '';
   h += '<h1>Listening <span>Notes</span></h1>';
   h += '<p class="sub">Play the role play audio, then use this space to capture rough notes. Use the <strong>Context</strong> button above to bring back the role play background at any time &mdash; it stays open alongside the audio and your notes, not as a popup that blocks them.</p>';
-
-  h += '<div class="card" id="notes-context-panel" style="display:none">';
-  h += '<div class="lbl" style="display:flex;align-items:center;justify-content:space-between">Role play context<button class="linkbtn no-print" id="btn-notes-context-hide" style="text-decoration:none;font-size:11px">Hide &times;</button></div>';
-  h += contextHTML();
-  h += '</div>';
 
   h += '<div class="card">';
   h += '<div class="lbl">Role play audio</div>';
@@ -1346,7 +1331,6 @@ function bind(sec) {
   }
   if (sec.kind === 'notes') {
     on('notes-main-ta','input', function(e){ S.notes = e.target.value; debouncedSave(); });
-    on('btn-notes-context-hide','click', function(){ $('notes-context-panel').style.display = 'none'; });
     on('btn-notes-continue','click', function(){
       showConfirm('Continue to the timed sections?', 'Your notes stay available from the My Notes button. Once you continue, section timers begin and cannot be paused.', function(){
         advance(false);
@@ -1832,32 +1816,43 @@ window.addEventListener('load', positionTimerbarBelowBanner);
 positionTimerbarBelowBanner();
 
 /* ═══ BOOT ═══════════════════════════════════════════════════ */
-$('tb-btn-fw').addEventListener('click', function(){ $('fw-body').innerHTML = frameworkHTML(); $('fw-modal').classList.add('show'); });
-$('tb-btn-notes').addEventListener('click', function(){ $('notes-ta').value = S.notes; $('notes-modal').classList.add('show'); });
-// On the Listening Notes screen itself, Context toggles an inline panel
-// instead of opening a modal — a modal would sit on top of the page and
-// block typing in the notes textarea underneath, which defeats the point
-// of keeping the context available while listening and writing notes.
-$('tb-btn-context').addEventListener('click', function(){
-  if (cur().kind === 'notes') {
-    const panel = $('notes-context-panel');
-    const opening = panel.style.display === 'none';
-    panel.style.display = opening ? 'block' : 'none';
-    if (opening) panel.scrollIntoView({behavior:'smooth', block:'start'});
-    return;
+// Context / Framework / My Notes share one docked side panel rather than
+// each having their own modal — a modal sits on top of the page and
+// blocks the input fields underneath, which defeats the point of being
+// able to reference this material while actually typing.
+let sidePanelKind = null;
+function openSidePanel(kind) {
+  const titles = { context: 'Role Play Context', framework: 'Competency Framework', mynotes: 'My Notes' };
+  $('side-panel-title').textContent = titles[kind];
+  const body = $('side-panel-body');
+  if (kind === 'context') {
+    body.innerHTML = contextHTML();
+  } else if (kind === 'framework') {
+    body.innerHTML = frameworkHTML();
+  } else if (kind === 'mynotes') {
+    body.innerHTML = '<p class="muted" style="margin-bottom:.75rem">Your rough notes from listening to the audio. Copying text is disabled, so retype anything you need into the fields.</p>'
+      + '<textarea id="side-notes-ta" style="min-height:280px">' + esc(S.notes) + '</textarea>';
+    $('side-notes-ta').addEventListener('input', function(e){ S.notes = e.target.value; debouncedSave(); });
   }
-  $('context-body').innerHTML = contextHTML();
-  $('context-modal').classList.add('show');
-});
-$('context-close').addEventListener('click', function(){ $('context-modal').classList.remove('show'); });
-$('context-modal').addEventListener('click', function(e){ if (e.target === $('context-modal')) $('context-modal').classList.remove('show'); });
-$('fw-close').addEventListener('click', function(){ $('fw-modal').classList.remove('show'); });
-$('fw-modal').addEventListener('click', function(e){ if (e.target === $('fw-modal')) $('fw-modal').classList.remove('show'); });
-$('notes-close').addEventListener('click', function(){ $('notes-modal').classList.remove('show'); });
-$('notes-modal').addEventListener('click', function(e){ if (e.target === $('notes-modal')) $('notes-modal').classList.remove('show'); });
-$('notes-ta').addEventListener('input', function(e){ S.notes = e.target.value; debouncedSave(); });
+  $('side-panel').classList.add('show');
+  document.body.classList.add('side-panel-open');
+  sidePanelKind = kind;
+}
+function closeSidePanel() {
+  $('side-panel').classList.remove('show');
+  document.body.classList.remove('side-panel-open');
+  sidePanelKind = null;
+}
+function toggleSidePanel(kind) {
+  if (sidePanelKind === kind) { closeSidePanel(); return; }
+  openSidePanel(kind);
+}
+$('tb-btn-context').addEventListener('click', function(){ toggleSidePanel('context'); });
+$('tb-btn-fw').addEventListener('click', function(){ toggleSidePanel('framework'); });
+$('tb-btn-notes').addEventListener('click', function(){ toggleSidePanel('mynotes'); });
+$('side-panel-close').addEventListener('click', closeSidePanel);
 document.addEventListener('keydown', function(e){
-  if (e.key === 'Escape') { $('fw-modal').classList.remove('show'); $('notes-modal').classList.remove('show'); $('context-modal').classList.remove('show'); }
+  if (e.key === 'Escape') closeSidePanel();
 });
 
 restored = load();
