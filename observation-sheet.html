@@ -288,12 +288,6 @@ const AUDIO_SRC = 'audio/role-play.mp3';
 const HARD_LOCK = true;   // true = section locks and auto-advances when time expires
 const BLOCK_PASTE = true; // true = pasting into the sheet is blocked
 
-// TESTING ONLY — set to false (or delete this flag and the code gated on
-// it, in viewNotes()/bind() below) before go-live. Adds a button to skip
-// past the role play audio without listening, purely to speed up manual
-// testing of the competency sections.
-const TESTING_MODE = true;
-
 // Randomized, not fixed — a predictable exact-5-minute cadence would let
 // someone time the camera. Each cycle picks a fresh random delay in this
 // range (averaging ~5 minutes) rather than reusing one fixed interval.
@@ -757,11 +751,6 @@ function viewNotes() {
       +  '&mdash; shown in the timer at the top of the page. You can continue sooner if you are ready.</div>';
   }
   h += '<div id="audio-area"></div>';
-  if (TESTING_MODE && !a.ended) {
-    h += '<div class="note warnbox no-print" style="margin-top:1rem;border-style:dashed">'
-      +  '<strong>Testing only &mdash; remove before go-live.</strong> '
-      +  '<button class="linkbtn" id="btn-skip-audio-testing" style="color:inherit">Skip audio and go straight to Competency 1 &rarr;</button></div>';
-  }
   h += '</div>';
 
   h += '<div class="card">';
@@ -1336,13 +1325,6 @@ function bind(sec) {
         advance(false);
       });
     });
-    if (TESTING_MODE) {
-      // TESTING ONLY — see the TESTING_MODE flag near the top of this file.
-      on('btn-skip-audio-testing','click', function(){
-        S.audio.forcedIncomplete = true; // flags this as not a genuine listen in the exported record
-        onAudioEnded();
-      });
-    }
     if (!S.audio.ended) {
       paintAudioArea();
       if (audioPreloadState === 'idle') preloadAudio();
@@ -1472,12 +1454,11 @@ async function beginSheet() {
     if (btn) { btn.disabled = false; btn.textContent = btnLabel; }
 
     const unreachable = !claim || claim.reason === 'server_error';
-    // TESTING_MODE only: let local/preview runs with no /api backend through.
-    if (unreachable && !TESTING_MODE) {
+    if (unreachable) {
       showCodeError("Couldn't verify your access code — check your connection and try again.");
       return;
     }
-    if (!unreachable && !claim.valid) {
+    if (!claim.valid) {
       showCodeError(claim.reason === 'already_used'
         ? 'This access code has already been used. Each code works once — contact your administrator if you believe this is an error.'
         : claim.reason === 'not_found'
