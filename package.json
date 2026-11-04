@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "dependencies": {
+    "postgres": "^3.4.4"
+  }
+}

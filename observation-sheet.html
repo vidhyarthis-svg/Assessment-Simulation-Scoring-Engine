@@ -1428,7 +1428,22 @@ function hideCodeError() {
   const el = $('code-err'); if (el) el.style.display = 'none';
 }
 
-function beginSheet() {
+// Server-side one-time-use claim (see api/validate-code.js). The local
+// checksum check above only proves the code matches the name; only a
+// database can stop the same code being used twice. Resolves to the
+// server's JSON, or null if it couldn't be reached / didn't answer in JSON.
+async function claimAccessCode(code, first, last) {
+  try {
+    const resp = await fetch('/api/validate-code', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code: code.trim(), firstName: first, lastName: last})
+    });
+    return await resp.json();
+  } catch (e) { return null; }
+}
+
+async function beginSheet() {
   // Re-sync from the live inputs rather than trusting S.* alone — some
   // autofill/password-manager flows set an input's value without firing
   // an 'input' event, which would otherwise leave S.firstName/lastName/
@@ -1450,6 +1465,28 @@ function beginSheet() {
       if (codeEl) codeEl.focus();
       return;
     }
+
+    const btn = $('btn-begin'), btnLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking access code…'; }
+    const claim = await claimAccessCode(S.accessCode, S.firstName, S.lastName);
+    if (btn) { btn.disabled = false; btn.textContent = btnLabel; }
+
+    const unreachable = !claim || claim.reason === 'server_error';
+    // TESTING_MODE only: let local/preview runs with no /api backend through.
+    if (unreachable && !TESTING_MODE) {
+      showCodeError("Couldn't verify your access code — check your connection and try again.");
+      return;
+    }
+    if (!unreachable && !claim.valid) {
+      showCodeError(claim.reason === 'already_used'
+        ? 'This access code has already been used. Each code works once — contact your administrator if you believe this is an error.'
+        : claim.reason === 'not_found'
+        ? "This access code isn't recognised. Check it and try again, or contact your administrator."
+        : "This access code doesn't match the name entered — check both are spelled correctly.");
+      if (codeEl) codeEl.focus();
+      return;
+    }
+
     hideCodeError();
     S.startedAt = Date.now();
     S.idx = 1;

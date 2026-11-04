@@ -226,6 +226,7 @@ footer{background:var(--gray1);padding:.75rem 1.5rem;display:flex;justify-conten
       <div class="btn-row" style="margin-top:0">
         <button class="btn btn-primary" id="btn-generate-code" disabled>Generate</button>
       </div>
+      <div class="err" id="code-gen-err"></div>
       <div id="code-result" style="display:none;margin-top:1.25rem">
         <div class="lbl">Access code</div>
         <div class="prompt-wrap">
@@ -645,10 +646,6 @@ function todayYYYYMMDD() {
   const d = new Date();
   return '' + d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
 }
-function generateAccessCode(first, last) {
-  const dateStr = todayYYYYMMDD();
-  return codeInitials(first, last) + '-' + dateStr + '-' + codeChecksum(first, last, dateStr);
-}
 function parseAccessCode(code) {
   const m = String(code||'').trim().toUpperCase().match(/^([A-Z]{2})-(\d{8})-([A-Z0-9]{4})$/);
   if (!m) return null;
@@ -685,11 +682,32 @@ function refreshGenerateGate() {
 document.getElementById('code-first').addEventListener('input', refreshGenerateGate);
 document.getElementById('code-last').addEventListener('input', refreshGenerateGate);
 
-document.getElementById('btn-generate-code').addEventListener('click', function(){
+// The code is issued server-side (api/generate-code.js) so it is registered
+// in the database the participant app checks for one-time use. A code made
+// any other way would be rejected there as "not recognised".
+document.getElementById('btn-generate-code').addEventListener('click', async function(){
   const first = document.getElementById('code-first').value.trim();
   const last = document.getElementById('code-last').value.trim();
+  const errEl = document.getElementById('code-gen-err');
+  const btn = this;
   if (!first || !last) return;
-  const code = generateAccessCode(first, last);
+  errEl.classList.remove('show');
+  btn.disabled = true;
+  let code = null;
+  try {
+    const resp = await fetch('/api/generate-code', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({firstName: first, lastName: last})
+    });
+    code = (await resp.json()).code || null;
+  } catch (e) {}
+  refreshGenerateGate();
+  if (!code) {
+    errEl.textContent = "Couldn't generate a code — the code server didn't respond. Check your connection and try again.";
+    errEl.classList.add('show');
+    return;
+  }
   document.getElementById('code-generated').value = code;
   document.getElementById('code-result').style.display = 'block';
   codeLog.push({ dateGenerated: todayDisplay, first: first, last: last, code: code });
