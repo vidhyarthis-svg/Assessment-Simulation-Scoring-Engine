@@ -377,7 +377,7 @@ Base every score exclusively on the observation sheet text from my second messag
 If a field is empty, unclear, or absent — score is 0.
 Do not infer or generate content the assessor did not write.
 
-Return ONLY this JSON — no preamble, no explanation, no markdown fences:
+Return ONLY this JSON — no preamble, no explanation, no markdown fences. Inside any rationale text use single quotes only (never double quotes) and keep each value on one line, so the JSON stays valid:
 {
   "associate_name": "extract from sheet or write Unknown",
   "date": "extract from sheet or write Unknown",
@@ -532,18 +532,38 @@ document.getElementById('btn-show3').addEventListener('click', function() {
   document.getElementById('step3').scrollIntoView({behavior:'smooth'});
 });
 
+// Copilot output often arrives with things JSON.parse rejects: code fences,
+// text around the object, curly quotes, non-breaking/zero-width spaces,
+// line breaks inside strings, trailing commas. Try the paste as-is first,
+// then a cleaned copy, so a clean response is never altered.
+function parseScoreJson(raw) {
+  const first = raw.indexOf('{'), last = raw.lastIndexOf('}');
+  const body = first !== -1 && last > first ? raw.slice(first, last + 1) : raw;
+  const cleaned = body
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u00A0\u2000-\u200B\u2028\u2029\uFEFF]/g, ' ')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/,\s*([}\]])/g, '$1');
+  let error = '';
+  for (const text of [raw, body, cleaned]) {
+    try { return { result: JSON.parse(text) }; } catch (e) { error = e.message; }
+  }
+  return { result: null, error: error };
+}
+
 // ── GENERATE RESULTS ──────────────────────────────────────────
 document.getElementById('gen-btn').addEventListener('click', function() {
   const raw = document.getElementById('response-paste').value.trim();
   const errEl = document.getElementById('parse-err');
   errEl.classList.remove('show');
   if (!raw) { errEl.textContent = 'Please paste the Copilot response.'; errEl.classList.add('show'); return; }
-  let result = null;
-  try { result = JSON.parse(raw); } catch(e) {
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) try { result = JSON.parse(m[0]); } catch(e2) {}
+  const parsed = parseScoreJson(raw);
+  if (!parsed.result) {
+    errEl.textContent = 'Could not parse JSON (' + parsed.error + '). Copy the complete Copilot response, from the opening { to the closing }.';
+    errEl.classList.add('show');
+    return;
   }
-  if (!result) { errEl.textContent = 'Could not parse JSON. Copy the complete Copilot response.'; errEl.classList.add('show'); return; }
+  const result = parsed.result;
   renderResults(result);
   document.getElementById('action-row').style.display = 'block';
 });
